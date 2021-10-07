@@ -1,3 +1,4 @@
 #!/bin/sh
 
-./_build/default/bin/main.exe
+eval $(opam env)
+dune build && dune exec ./bin/main.exe
