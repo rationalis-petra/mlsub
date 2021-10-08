@@ -155,10 +155,18 @@ let pExpr =
     | [] -> Int 0
     | [x] -> x
     | (x :: xs) -> Apply (x, buildApply xs) in
-  many1 (pExprNoApply <* pWhitespace) >>| buildApply
+  pWhitespace *> many1 (pExprNoApply <* pWhitespace) >>| buildApply
 
 
-let parse_string (str:string) : expr =
-  match parse_string ~consume:All (pWhitespace *> pExpr) str with
+let pProgram =
+  pWhitespace *> sep_by (token ";;") pExpr
+
+let expr_of_string (str:string) : expr =
+  match parse_string ~consume:All (pExpr) str with
+  | Ok v      -> v
+  | Error msg -> failwith msg
+
+let prog_of_string (str:string) : expr list =
+  match parse_string ~consume:All (pProgram) str with
   | Ok v      -> v
   | Error msg -> failwith msg
