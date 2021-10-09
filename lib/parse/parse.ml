@@ -1,14 +1,16 @@
 open Angstrom
 
-type op = Add | Sub | Mul | Div | Gre | Eql;;
+type op = Add | Sub | Mul | Div | Gre | Eql | And | Or ;;
 
 type expr
   = Int of int
   | Bool of bool
   | Var of string
+  | Record of (string * expr) list
   | Op of op * expr * expr
   | If of expr * expr * expr
   | Let of string * expr * expr
+  | LetRec of string * expr * expr
   | Fun of string * expr
   | Apply of expr * expr;;
 
@@ -19,12 +21,24 @@ let string_of_op = function
   | Div -> " / "
   | Gre -> " > "
   | Eql -> " = "
+  | And -> " and "
+  | Or  -> " or "
 
 let rec string_of_expr = function
   | Int (i) -> string_of_int i
   | Bool (true) -> "true"
   | Bool (false) -> "false"
   | Var str -> str
+  | Record lst ->
+      let rec list_to_string = function
+        | [] -> ""
+        | [(name, expr)] -> name ^ " = " ^ string_of_expr expr
+        | ((name, expr)::xs) -> name ^
+                                  " = " ^
+                                    string_of_expr expr ^
+                                      ",\n" ^ list_to_string xs
+      in "{" ^ list_to_string lst ^ "}"
+
   | Op (o, e1, e2) -> "(" ^
                         string_of_expr e1 ^
                           string_of_op o ^
@@ -41,6 +55,9 @@ let rec string_of_expr = function
                              " = " ^
                                string_of_expr e1 ^
                                  " in " ^
+                                   string_of_expr e2
+  | LetRec (var, e1, e2) -> "let rec " ^ var ^ " = " ^
+                               string_of_expr e1 ^ " in " ^
                                    string_of_expr e2
   | Fun (var, e) -> "fun " ^ var ^ " -> " ^ string_of_expr e
   | Apply (e1, e2) -> string_of_expr e1 ^ " " ^ string_of_expr e2
@@ -80,6 +97,8 @@ let pMul = mkBinParser "*" Mul
 let pDiv = mkBinParser "/" Div
 let pGre = mkBinParser ">" Gre
 let pEql = mkBinParser "=" Eql
+let pAnd = mkBinParser "and" And
+let pOr  = mkBinParser "or" Or
 
 (* simple integer and boolean literal parsers - looks for strings of the form *)
 (* [0-9]/true-false, then converts to an equivalent Int/Bool-expression, *)
@@ -109,6 +128,15 @@ let pVar : expr t = pVarStr >>| (fun var -> Var var)
 (* angstrom, recursive parsers are constructed via the fixpoint, so each of *)
 (* these are phrased as functions which take in a parser called expr - the *)
 (* parser which parses all expressions *)
+
+let pRecord expr : expr t =
+  let recordList = 
+    let recordEntry = (pVarStr <* string "=" <* pWhitespace) >>= 
+      (fun varName -> expr >>| (fun (expr: expr) -> (varName, expr)))
+    in sep_by (token ",") recordEntry
+  in
+  (string "{" *> pWhitespace *> recordList <* string "}") >>| (fun list -> Record list)
+
                          
 let pBinary expr : expr t =
   (* Utility for constructing binary operator parsers *)
@@ -122,7 +150,8 @@ let pBinary expr : expr t =
   let factor = parens expr <|> pInteger <|> pBool <|> pVar in
   let term   = mkBin factor (pMul <|> pDiv) in
   let arith  = mkBin term (pAdd <|> pSub) in
-  mkBin arith (pGre <|> pEql)
+  let logic  = mkBin arith (pGre <|> pEql) in
+  mkBin logic (pAnd <|> pOr)
 
 let pIf expr : expr t =
   (token "if" *> expr) >>=
@@ -130,11 +159,15 @@ let pIf expr : expr t =
     (fun e1   -> (token "else" *> expr) >>|
     (fun e2   -> If (cond, e1, e2))))
 
-let pLet expr : expr t = 
-  (token "let" *> pVarStr) >>=
+let pLet expr : expr t =
+  let letBody ctor = pVarStr >>=
     (fun var -> (token "=" *> expr) >>=
     (fun e1  -> (token "in" *> expr) >>|
-    (fun e2  -> Let (var, e1, e2))))
+    (fun e2  -> ctor var e1 e2)))
+  in 
+  (token "let" *> letBody (fun v e1 e2 -> Let (v, e1, e2)))
+  <|>
+  (token "let rec" *> letBody (fun v e1 e2 -> LetRec (v, e1, e2)))
 
 let pFun expr : expr t =
   (token "fun" *> pVarStr) >>=
@@ -147,6 +180,7 @@ let pExprNoApply : expr t =
       choice [pIf expr;
               pLet expr;
               pFun expr;
+              pRecord expr;
               pBinary expr;
               pVar])
 
@@ -169,4 +203,4 @@ let expr_of_string (str:string) : expr =
 let prog_of_string (str:string) : expr list =
   match parse_string ~consume:All (pProgram) str with
   | Ok v      -> v
-  | Error msg -> failwith msg
+  | Error msg -> failwith ("ParseError: " ^ msg)
