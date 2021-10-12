@@ -14,6 +14,8 @@ type expr
   | Fun of string * expr
   | Apply of expr * expr;;
 
+let reserved_words = ["let", "rec", "in", "and", "or", "if", "else", "then"]
+
 let string_of_op = function
   | Add -> " + "
   | Sub -> " - "
@@ -25,10 +27,10 @@ let string_of_op = function
   | Or  -> " or "
 
 let rec string_of_expr = function
-  | Int (i) -> string_of_int i
-  | Bool (true) -> "true"
-  | Bool (false) -> "false"
-  | Var str -> str
+  | Int i -> string_of_int i
+  | Bool true -> "<lit: true>"
+  | Bool false -> "<lit: false>"
+  | Var str -> "<lit: " ^ str ^ ">"
   | Record lst ->
       let rec list_to_string = function
         | [] -> ""
@@ -120,7 +122,11 @@ let pVarStr : string t=
           | 'a' .. 'z' -> true
           | 'A' .. 'Z' -> true
           | _ -> false) >>|
-    (fun string -> String.make 1 char ^ string)))
+        (fun string ->
+          let result = String.make 1 char ^ string in
+          if elem result reserved
+          then raise false
+          else result )))
 
 let pVar : expr t = pVarStr >>| (fun var -> Var var)
 
@@ -133,7 +139,7 @@ let pRecord expr : expr t =
   let recordList = 
     let recordEntry = (pVarStr <* string "=" <* pWhitespace) >>= 
       (fun varName -> expr >>| (fun (expr: expr) -> (varName, expr)))
-    in sep_by (token ",") recordEntry
+    in sep_by (toTok (char ',')) recordEntry
   in
   (string "{" *> pWhitespace *> recordList <* string "}") >>| (fun list -> Record list)
 

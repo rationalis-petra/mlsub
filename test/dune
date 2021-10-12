@@ -1,2 +1,3 @@
 (test
- (name MLSub))
+ (name parse)
+ (libraries Parse ounit2))
