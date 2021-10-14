@@ -1,3 +1,3 @@
 (test
- (name parse)
- (libraries Parse ounit2))
+ (name parse_test)
+ (libraries parse ounit2))

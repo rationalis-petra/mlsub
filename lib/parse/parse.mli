@@ -5,6 +5,7 @@ type expr
   = Int of int
   | Bool of bool
   | Var of string
+  | Access of string
   | Record of (string * expr) list
   | Op of op * expr * expr
   | If of expr * expr * expr

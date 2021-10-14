@@ -6,6 +6,7 @@ type expr
   = Int of int
   | Bool of bool
   | Var of string
+  | Access of string
   | Record of (string * expr) list
   | Op of op * expr * expr
   | If of expr * expr * expr
@@ -14,55 +15,54 @@ type expr
   | Fun of string * expr
   | Apply of expr * expr;;
 
-let reserved_words = ["let", "rec", "in", "and", "or", "if", "else", "then"]
+let reserved_words = ["let"; "rec"; "in"; "and"; "or"; "if"; "else"; "then"]
 
 let string_of_op = function
-  | Add -> " + "
-  | Sub -> " - "
-  | Mul -> " * "
-  | Div -> " / "
-  | Gre -> " > "
-  | Eql -> " = "
-  | And -> " and "
-  | Or  -> " or "
+  | Add -> "Add"
+  | Sub -> "Sub"
+  | Mul -> "Mul"
+  | Div -> "Div"
+  | Gre -> "Gre"
+  | Eql -> "Eql"
+  | And -> "And"
+  | Or  -> "Or"
 
-let rec string_of_expr = function
-  | Int i -> string_of_int i
-  | Bool true -> "<lit: true>"
-  | Bool false -> "<lit: false>"
-  | Var str -> "<lit: " ^ str ^ ">"
+let rec string_of_expr =
+  let soe = string_of_expr in
+  function
+  | Int i -> "Int " ^ string_of_int i
+  | Bool true -> "Bool true"
+  | Bool false -> "Bool false"
+  | Var str -> "Var " ^ str
+  | Access str -> "Access" ^ str
   | Record lst ->
       let rec list_to_string = function
         | [] -> ""
-        | [(name, expr)] -> name ^ " = " ^ string_of_expr expr
+        | [(name, expr)] -> name ^ " = " ^ soe expr
         | ((name, expr)::xs) -> name ^
                                   " = " ^
-                                    string_of_expr expr ^
+                                    soe expr ^
                                       ",\n" ^ list_to_string xs
       in "{" ^ list_to_string lst ^ "}"
 
-  | Op (o, e1, e2) -> "(" ^
-                        string_of_expr e1 ^
-                          string_of_op o ^
-                            string_of_expr e2 ^
-                              ")"
-  | If (cond, e1, e2) -> "if " ^
-                           string_of_expr cond ^
-                             " then " ^
-                               string_of_expr e1 ^
-                                 " else " ^
-                                   string_of_expr e2
-  | Let (var, e1, e2) -> "let " ^
-                           var ^
-                             " = " ^
-                               string_of_expr e1 ^
-                                 " in " ^
-                                   string_of_expr e2
-  | LetRec (var, e1, e2) -> "let rec " ^ var ^ " = " ^
-                               string_of_expr e1 ^ " in " ^
-                                   string_of_expr e2
-  | Fun (var, e) -> "fun " ^ var ^ " -> " ^ string_of_expr e
-  | Apply (e1, e2) -> string_of_expr e1 ^ " " ^ string_of_expr e2
+  | Op (o, e1, e2) -> "Op (" ^
+                        string_of_op o ^ ", " ^
+                          soe e1 ^ ", "^
+                            soe e2 ^ ")"
+  | If (cond, e1, e2) -> "If (" ^
+                           soe cond ^ ", " ^
+                               soe e1 ^ ", " ^
+                                   soe e2 ^ ")"
+  | Let (var, e1, e2) -> "Let (" ^
+                           var ^ ", " ^
+                               soe e1 ^ ", " ^
+                                   soe e2 ^ ")"
+  | LetRec (var, e1, e2) -> "LetRec(" ^ var ^ ", " ^
+                               soe e1 ^ ", " ^
+                                   soe e2 ^ "("
+  | Fun (var, e) -> "Fun (" ^ var ^ ", " ^ soe e ^ ")"
+
+  | Apply (e1, e2) -> "Apply (" ^ soe e1 ^ ", " ^ soe e2 ^ ")"
 
 
 
@@ -112,23 +112,30 @@ let pInteger =
 let pBool =
   let pTrue = (string "true" *> return (Bool true))
   and pFalse = (string "false" *> return (Bool false))
-  in pTrue <|> pFalse
+  in toTok (pTrue <|> pFalse)
 
-let pVarStr : string t=
+let pVarStr : string t =
+  let rec elem = function
+    | (x, y::_) when x = y -> true
+    | (_, []) -> false
+    | (x, _::xs) -> elem (x, xs) in
   toTok (satisfy (function 'a' .. 'z' -> true | _ -> false) >>=
     (fun char ->
       take_while (function
           | '0' .. '9' -> true
           | 'a' .. 'z' -> true
           | 'A' .. 'Z' -> true
-          | _ -> false) >>|
+          | _ -> false) >>=
         (fun string ->
           let result = String.make 1 char ^ string in
-          if elem result reserved
-          then raise false
-          else result )))
+          if elem (result, reserved_words) then
+            fail (Format.sprintf "used reserved keyword")
+          else
+            return result)))
 
 let pVar : expr t = pVarStr >>| (fun var -> Var var)
+
+let pAccess : expr t = char '#' *> pVarStr >>|  (fun var -> Access var)
 
 (* These are parsers for the more complex expressions: if/else, let, etc. In *)
 (* angstrom, recursive parsers are constructed via the fixpoint, so each of *)
@@ -151,8 +158,9 @@ let pBinary expr : expr t =
       (lift2 (fun f x -> f acc x) op e >>= go) <|> return acc in
     e >>= fun init -> go init in
 
-  (* Standard Operators: +, -, etc. accordign to standard precedence: *, / *)
-  (* tighter than +, - tigher than >, =*)
+  (* Standard Operators: +, -, etc. according to standard precedence: * and / *)
+  (* bind tighter than + and - bind tighter than > and =* bind tighter than and *)
+  (* and or *)
   let factor = parens expr <|> pInteger <|> pBool <|> pVar in
   let term   = mkBin factor (pMul <|> pDiv) in
   let arith  = mkBin term (pAdd <|> pSub) in
@@ -188,6 +196,7 @@ let pExprNoApply : expr t =
               pFun expr;
               pRecord expr;
               pBinary expr;
+              pAccess;
               pVar])
 
 let pExpr =
