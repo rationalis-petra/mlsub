@@ -118,11 +118,9 @@ let pOr  = mkBinParser "or" Or
 (* [0-9]/true-false, then converts to an equivalent Int/Bool-expression, *)
 (* i.e. "45" becomes 'Int 45' and "true" becomes 'Bool true' *)  
 let pInteger =
-  let posInt = toTok (take_while1 isNumeric
-                      >>| (fun str -> Int (int_of_string str)))
-  and negInt = toTok (char '-' *> take_while1 isNumeric
-                      >>| (fun str -> Int (-(int_of_string str)))) in 
-   posInt <|> negInt
+  let posInt = toTok (take_while1 isNumeric >>| int_of_string) in
+  let negInt = char '-' *> posInt >>| (fun n -> -n) in 
+  (posInt <|> negInt) >>| (fun n -> Int n)
   
 
 let pBool =
@@ -141,7 +139,7 @@ let pVarStr : string t =
         (fun string ->
           let result = String.make 1 char ^ string in
           if elem (result, reserved_words) then
-            fail (Format.sprintf "used reserved keyword")
+            fail (Format.sprintf "unexpected " ^ result)
           else
             return result)))
 
