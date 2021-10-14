@@ -65,9 +65,21 @@ let rec string_of_expr =
   | Apply (e1, e2) -> "Apply (" ^ soe e1 ^ ", " ^ soe e2 ^ ")"
 
 
+(* helper predicates *)
+let isAlphabetic = function
+  | 'a' .. 'z' -> true
+  | 'A' .. 'Z' -> true
+  | _ -> false
 
+let isAlphaNumeric = function
+  | 'a' .. 'z' -> true
+  | 'A' .. 'Z' -> true
+  | '0' .. '9' -> true
+  | _ -> false
 
-
+let isNumeric = function
+  | '0' .. '9' -> true
+  | _ -> false
 
 (* Parsers which consume Whitespace *)
 let pWhitespace = take_while (function '\t' | '\n' |' ' -> true | _ -> false)
@@ -106,8 +118,12 @@ let pOr  = mkBinParser "or" Or
 (* [0-9]/true-false, then converts to an equivalent Int/Bool-expression, *)
 (* i.e. "45" becomes 'Int 45' and "true" becomes 'Bool true' *)  
 let pInteger =
-  toTok (take_while1 (function '0' .. '9' -> true | _ -> false) >>|
-           (fun str -> Int (int_of_string str)))
+  let posInt = toTok (take_while1 isNumeric
+                      >>| (fun str -> Int (int_of_string str)))
+  and negInt = toTok (char '-' *> take_while1 isNumeric
+                      >>| (fun str -> Int (-(int_of_string str)))) in 
+   posInt <|> negInt
+  
 
 let pBool =
   let pTrue = (string "true" *> return (Bool true))
@@ -119,13 +135,9 @@ let pVarStr : string t =
     | (x, y::_) when x = y -> true
     | (_, []) -> false
     | (x, _::xs) -> elem (x, xs) in
-  toTok (satisfy (function 'a' .. 'z' -> true | _ -> false) >>=
+  toTok (satisfy isAlphabetic >>=
     (fun char ->
-      take_while (function
-          | '0' .. '9' -> true
-          | 'a' .. 'z' -> true
-          | 'A' .. 'Z' -> true
-          | _ -> false) >>=
+      take_while (isAlphaNumeric) >>=
         (fun string ->
           let result = String.make 1 char ^ string in
           if elem (result, reserved_words) then
