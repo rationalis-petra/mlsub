@@ -1,4 +1,4 @@
 (executable
- (public_name MLSub)
+ (public_name MLsub)
  (name main)
  (libraries parse))
