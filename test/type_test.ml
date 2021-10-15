@@ -1,8 +1,9 @@
+open Data
 open Type
 open OUnit2
 
 let typeTest name expr simple_type = 
-  name >:: (fun _ -> assert_equal simple_type (typecheck expr (Hashtbl.create 100)))
+  name >:: (fun _ -> assert_equal simple_type (typecheck expr Context.empty))
 
 let typeTestCtxt name expr simple_type ctx =
   name >:: (fun _ -> assert_equal simple_type (typecheck expr ctx))
@@ -19,8 +20,7 @@ let tests = "test suite for typing" >::: [
   typeTest "integer3"   (Int (-10))  (Primitive PrimInt);
 
   (* Variables in a Dummy Context *) 
-  let context = Hashtbl.create 1 in
-  (Hashtbl.add context "x" (Primitive PrimInt);
-  typeTestCtxt "variable" (Var "x") (Primitive PrimInt) context)]
+  let context = (Context.empty |> Context.add "x" (Primitive PrimInt)) in
+  typeTestCtxt "variable" (Var "x") (Primitive PrimInt) context]
 
 let _ = run_test_tt_main tests

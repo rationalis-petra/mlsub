@@ -1,7 +1,7 @@
 (test
  (name type_test)
  (modules type_test)
- (libraries type ounit2))
+ (libraries type data ounit2))
 
 (test
   (name parse_test)

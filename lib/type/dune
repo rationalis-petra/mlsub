@@ -1,4 +1,9 @@
+(library
+  (name data)
+  (modules data)
+  (libraries parse))
 
 (library
   (name type)
-  (libraries parse))
+  (modules type)
+  (libraries parse data))
