@@ -1,9 +1,3 @@
 (library
-  (name data)
-  (modules data)
-  (libraries parse))
-
-(library
   (name type)
-  (modules type)
-  (libraries parse data))
+  (libraries parse))

@@ -1,4 +1,12 @@
 #!/bin/sh
 
-eval $(opam env)
-dune build && dune exec ./bin/main.exe
+if [ "$1" == "run" ]; then 
+    eval $(opam env)
+    dune build && dune exec ./bin/main.exe
+elif [ "$1" == "test" ]; then
+    eval $(opam env)
+    dune test
+else
+    echo "command not recognized"
+fi
+

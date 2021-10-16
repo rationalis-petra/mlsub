@@ -4,20 +4,26 @@ exception TypecheckError of string
 
 type raw_expr = P.expr
 
+
+(* simple_type is the type inferred by the first stage of the type-checking
+   algorithm *) 
 type primitive = PrimInt | PrimBool
-
-(* Store the constraints on a variable as a set of upper and lower bounds *)
-
 type simple_type
   = Primitive of primitive 
   | Variable  of variable_state
   | Function  of simple_type * simple_type
   | Record    of (string * simple_type) list
 
+(* Store the constraints on a variable as a set of upper and lower bounds *)
 and variable_state = {
     mutable lower_bounds : simple_type list;
     mutable upper_bounds : simple_type list
   }
+
+
+
+
+
 
 let rec string_of_type : simple_type -> string = 
   let string_of_primitive = function

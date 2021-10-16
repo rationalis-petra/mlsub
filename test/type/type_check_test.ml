@@ -1,5 +1,6 @@
-open Data
-open Type
+
+open Type.Internal.Data
+open Type.Internal.Check
 open OUnit2
 
 let typeTest name expr simple_type = 
@@ -7,7 +8,6 @@ let typeTest name expr simple_type =
 
 let typeTestCtxt name expr simple_type ctx =
   name >:: (fun _ -> assert_equal simple_type (typecheck expr ctx))
-
 
 let tests = "test suite for typing" >::: [
   (* Boolean Literals *)
@@ -20,7 +20,18 @@ let tests = "test suite for typing" >::: [
   typeTest "integer3"   (Int (-10))  (Primitive PrimInt);
 
   (* Variables in a Dummy Context *) 
-  let context = (Context.empty |> Context.add "x" (Primitive PrimInt)) in
-  typeTestCtxt "variable" (Var "x") (Primitive PrimInt) context]
+  (let context = (Context.empty |> Context.add "x" (Primitive PrimInt)) in
+  typeTestCtxt "variable" (Var "x") (Primitive PrimInt) context);
+
+  (* Operators with Primitives *)
+  typeTest "op_add_simple"
+    (Op (Add, Int 0, Int 2))
+    (Primitive PrimInt);
+  typeTest "op_geq_simple"
+    (Op (Gre, Int 0, Int 3))
+    (Primitive PrimBool);
+  typeTest "op_and_simple"
+    (Op (And, Bool true, Bool false))
+    (Primitive PrimBool)]
 
 let _ = run_test_tt_main tests

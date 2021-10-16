@@ -1,0 +1,14 @@
+(test
+ (name type_check_test)
+ (modules type_check_test)
+ (libraries type ounit2))
+
+(test
+ (name type_target_test)
+ (modules type_target_test)
+ (libraries type ounit2))
+
+(test
+ (name type_coalesce_test)
+ (modules type_coalesce_test)
+ (libraries type ounit2))

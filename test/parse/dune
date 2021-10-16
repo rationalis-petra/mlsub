@@ -1,0 +1,4 @@
+(test
+  (name parse_test)
+  (modules parse_test)
+  (libraries parse ounit2))
