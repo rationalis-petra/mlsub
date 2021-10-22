@@ -3,12 +3,30 @@ open Data
 
 module Context = Map.Make(String)
 
+module CSet = Set.Make(
+                  struct
+                    type t = simple_type * simple_type
+
+                    let compare (t11, t12) (t21, t22) = 
+                      if (Comparisons.compare_simpletype t11 t21) = 0 then
+                        0
+                      else
+                        Comparisons.compare_simpletype t12 t22
+                  end)
+
 (* A context which stores the type of a variable *)
 type ctx = simple_type Context.t
 
 (* Utility functions *)
-let fresh_var () = Variable ({lower_bounds = [];
-                              upper_bounds = []})
+let var_id_counter = ref 0
+let fresh_var () =
+  begin
+    let v = !var_id_counter in
+    var_id_counter := v + 1;
+    Variable ({lower_bounds = [];
+               upper_bounds = [];
+               uid = v})
+  end
 let err msg = raise (TypecheckError msg)
 
 let swap f a b = f b a
@@ -70,7 +88,6 @@ class constrain_func = object(self)
           ()
        | _ -> err ("cannot constrain " ^ (string_of_type lhs)
                    ^ " <: " ^ (string_of_type rhs)))
-
 end
 
 (* TODO: rather than have cf be a global variable, allow at the initial
