@@ -9,7 +9,7 @@ module PSet = Set.Make(
                     type t = variable_state * polarity
 
                     let compare (v1, p1) (v2, p2) = 
-                      match Comparisons.compare_varstate v1 v2 with 
+                      match CompVarSt.compare v1 v2 with 
                             | 0 ->
                                begin
                                  match (p1, p2) with

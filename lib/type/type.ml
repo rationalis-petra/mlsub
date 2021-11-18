@@ -5,7 +5,7 @@ type mlsub_type
   = Top
   | Bottom
   | Union        of mlsub_type * mlsub_type
-  | Intersection of mlsub_type * mlsub_type 
+  | Intersection of mlsub_type * mlsub_type
   | Function     of mlsub_type * mlsub_type
   | Record       of (string * mlsub_type) list
   | Recursive    of string * mlsub_type
@@ -14,7 +14,9 @@ type mlsub_type
 
 and primitive_type = PrimInt | PrimBool
 
-(* val typecheck : raw_expr -> mlsub_type *)
+let infer_type = Type_check.infer_type
+
+let string_of_type = Data.string_of_type
 
 module Internal = struct
   module Data = Data
@@ -22,3 +24,4 @@ module Internal = struct
   module Target = Type_target
   module Coalesce = Type_coalesce
 end
+

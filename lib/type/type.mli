@@ -14,7 +14,9 @@ type mlsub_type
 
 and primitive_type = PrimInt | PrimBool
 
-(* val typecheck : raw_expr -> mlsub_type *)
+val infer_type : raw_expr -> Data.simple_type
+
+val string_of_type : Data.simple_type -> string
 
 (* the Internal module is used so that TESTS can access otherwise private values
    such as helper functions, etc. No other code should access the internal
