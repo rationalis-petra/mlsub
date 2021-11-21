@@ -128,28 +128,26 @@ and extrude (ty : simple_type) (pol : polarity) (lvl : int)
                    (x, extrude y pol lvl cache))
                  fs)
     | Variable vs ->
-       match PolCache.find_opt (PolarVariable (vs, pol)) (!cache) with 
+       match PolCache.find_opt (vs, pol) (!cache) with 
        | Some v -> v
        | None ->
-          match fresh_var lvl with
-          | (Variable nvs) ->
-             begin
-               cache := PolCache.add (PolarVariable (vs, pol)) (Variable nvs) (!cache);
-               if pol == Positive then
-                 begin
-                   vs.upper_bounds <- (Variable nvs) :: vs.upper_bounds;
-                   nvs.lower_bounds <- List.map (fun x -> extrude x pol lvl cache)
-                                         vs.lower_bounds
-                 end
-               else
-                 begin
-                   vs.lower_bounds <- (Variable nvs) :: vs.lower_bounds;
-                   nvs.upper_bounds <- List.map (fun x -> extrude x pol lvl cache)
-                                         vs.upper_bounds
-                 end;
-               Variable nvs
-             end
-          | _ -> err "non variable returned by fresh_var"
+          let nvs =  fresh_var lvl in
+          begin
+            cache := PolCache.add (vs, pol) (Variable nvs) (!cache);
+            if pol == Positive then
+              begin
+                vs.upper_bounds <- (Variable nvs) :: vs.upper_bounds;
+                nvs.lower_bounds <- List.map (fun x -> extrude x pol lvl cache)
+                                      vs.lower_bounds
+              end
+            else
+              begin
+                vs.lower_bounds <- (Variable nvs) :: vs.lower_bounds;
+                nvs.upper_bounds <- List.map (fun x -> extrude x pol lvl cache)
+                                      vs.upper_bounds
+              end;
+            Variable nvs
+            end
 
 
 
@@ -177,21 +175,21 @@ let rec typecheck raw_expr ctx (lvl: int) : simple_type =
      represent the parameter type, then typecheck the body with this
      new context *) 
   | P.Fun (name, body) -> 
-     let param_type = fresh_var lvl in
+     let param_type = Variable (fresh_var lvl) in
      Function (param_type, typecheck body (Context.add name (Left param_type) ctx) lvl) 
 
   (* A record access is just a function, and so type-checking is very similar:
      with the prime difference being that we know the input type must be a
      record matching name to the return type *) 
   | P.Access name ->
-     let ret_type = fresh_var lvl in
+     let ret_type = Variable (fresh_var lvl) in
      Function (Record [(name, ret_type)], ret_type)
 
   (* To typecheck a function application, we constrain the function to
      have an input type which is at least the argument, and a fresh
      result type. Then, return the return type *) 
   | P.Apply (func, arg) ->
-     let ret_type = fresh_var lvl in
+     let ret_type = Variable (fresh_var lvl) in
      constrain (typecheck func ctx lvl) (Function (typecheck arg ctx lvl, ret_type));
      ret_type
 
@@ -221,7 +219,7 @@ let rec typecheck raw_expr ctx (lvl: int) : simple_type =
   (* TODO: is this corrcet??? *)
 
   | P.If (e0, e1, e2) -> 
-     let body_type = fresh_var lvl in
+     let body_type = Variable (fresh_var lvl) in
      constrain (typecheck e0 ctx lvl) (Primitive PrimBool);
      constrain (typecheck e1 ctx lvl) body_type;
      constrain (typecheck e2 ctx lvl) body_type;

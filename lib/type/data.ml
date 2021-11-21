@@ -29,7 +29,7 @@ let inv = function
   | Positive -> Negative
   | Negative -> Positive
 
-type polar_variable = PolarVariable of variable_state * polarity 
+type polar_variable = variable_state * polarity 
 
 type mlsub_type
   = Top
@@ -49,10 +49,10 @@ let fresh_var l =
   begin
     let v = !var_id_counter in
     var_id_counter := v + 1;
-    Variable ({lower_bounds = [];
+    {lower_bounds = [];
                upper_bounds = [];
                level = l;
-               uid = v})
+               uid = v}
   end
 
 
@@ -94,7 +94,7 @@ module PolymorphicTypeScheme
                match Hashtbl.find_opt freshened (freshen_above lim ty lvl) with
                | Some x -> x
                | None ->
-                  let vr = fresh_var lvl in
+                  let vr = Variable (fresh_var lvl) in
                   match vr with
                   | Variable v ->
                      begin
@@ -186,6 +186,11 @@ module type CompPolVarT = sig (* CompT (struct type t = simple_type end) *)
   val compare : t -> t -> int
 end
 
+module type CompPolT = sig (* CompT (struct type t = simple_type end) *)
+  type t = polarity
+  val compare : t -> t -> int
+end
+
 module rec CompPrimitive : CompPrimitiveT
   = struct
   type t = primitive
@@ -239,20 +244,25 @@ and CompVarSt : CompVarStT
 
 and CompSimpleProd : CompSimpleProdT = CompProd( CompSimple ) ( CompSimple )
 
+module CompPol : CompPolT
+  = struct
+  type t = polarity
+  let compare p1 p2 = 
+    match (p1, p2) with  
+    | (a, b) when a = b -> 0
+    | (Positive, _) -> 1
+    | (_, _) -> -1
+  end
+
 module CompPolVar : CompPolVarT
   = struct
   type t = polar_variable
   let compare pv1 pv2 = 
-    let PolarVariable (v1, pol1) = pv1 in
-    let PolarVariable (v2, pol2) = pv2 in
+    let (v1, pol1) = pv1 in
+    let (v2, pol2) = pv2 in
     match CompVarSt.compare v1 v2 with
-    | 0 ->
-       (match (pol1, pol2) with  
-        | (a, b) when a = b -> 0
-        | (Positive, _) -> 1
-        | (_, _) -> -1)
+    | 0 -> CompPol.compare pol1 pol2
     | n -> n
-
   end
 
 module SimpleSet = Set.Make(CompSimple)
