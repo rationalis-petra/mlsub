@@ -238,8 +238,7 @@ and CompVarSt : CompVarStT
   = struct
   type t = variable_state
   let compare state1 state2 = 
-    List.compare (CompSimple.compare) (state1.lower_bounds @ state1.upper_bounds)
-      (state2.lower_bounds @ state2.upper_bounds)
+    Int.compare state1.uid state2.uid
   end
 
 and CompSimpleProd : CompSimpleProdT = CompProd( CompSimple ) ( CompSimple )

@@ -21,6 +21,7 @@ module CompactType = struct
   (* Shorthand for use outside the module *)
   type t = compact_type
 
+
   (* The empty compact type *)
   let empty = {vars = VarStateSet.empty;
                prims = PrimSet.empty;
@@ -49,9 +50,10 @@ module CompactType = struct
       = Option.map 
                 (fun ((lrec : t SMap.t), (rrec : t SMap.t)) : compact_type SMap.t->
                   if pol = Positive then
-                    (* TODO: same semantics both if & else branches?? *) 
+                    (* TODO: same semantics both of & else branches?? *) 
                     SMap.merge (fun _ v1 v2 ->
-                        (* TODO: this may be an error!!! *)
+                        (* TODO: this may be an error!!!  options for y/empty
+                           empty type? *)
                         option_merge (fun x y -> merge pol x y) v1 v2)
                       lrec rrec
                   else
@@ -65,6 +67,7 @@ module CompactType = struct
      prims = PrimSet.union lhs.prims rhs.prims;
      rcd = recd;
      func = funcn}
+
 
 end
 
@@ -86,6 +89,26 @@ module CompactTypeScheme = struct
   (* Alias for use outside the module *)
   type t = compact_type_scheme
 
+  let map_of_rcd (f : 'a -> 'b) (lst : (string * 'a) list) = 
+    SMap.of_seq (List.to_seq (List.map (fun (key, value) ->
+                                  (key, f value)) lst)) 
+
+
+  let rec close_over (xs: VarStateSet.t) (f: variable_state -> VarStateSet.t): VarStateSet.t =
+    close_over_cached VarStateSet.empty xs f
+
+  and close_over_cached dne todo f: VarStateSet.t =
+    if VarStateSet.is_empty todo then
+      dne
+    else 
+      let flat_map f s = 
+        VarStateSet.of_seq
+          (Seq.flat_map
+             (fun x -> VarStateSet.to_seq (f x))
+             (VarStateSet.to_seq s)) in
+      let new_done = VarStateSet.union dne todo in
+      close_over_cached new_done (VarStateSet.diff (flat_map f todo)  new_done) f
+    
 
 
   let compact_type (ty: simple_type) : compact_type_scheme =
@@ -101,12 +124,9 @@ module CompactTypeScheme = struct
                                  go r pol VarSet.empty in_process)}
       | Record fs ->
          (* Map f over the second *)
-         let mk_map (f : 'a -> 'b) (lst : (string * 'a) list) = 
-           SMap.of_seq (List.to_seq (List.map (fun (key, value) -> (key, f value
-                                       )) lst)) in
-         {empty with rcd = Some (mk_map (fun ty ->
+         {empty with rcd = Some (map_of_rcd (fun ty ->
                                      (go ty pol VarSet.empty in_process))
-                                   fs) }
+                                   fs)}
       | Variable tv ->
 
          let tv_pol = (tv, pol) in
@@ -138,6 +158,26 @@ module CompactTypeScheme = struct
       rec_vars = !rec_vars }
 
   
+  type polar_type = CompactType.t * bool
+
+  (* let canonicalize_type (ty : simple_type) : compact_type_scheme = *)
+  (*   let recursive : (polar_type, variable_state) Hashtbl.t = Hashtbl.empty in *)
+  (*   let rec_vars = (compact_type VarMap.t) ref in *)
+    
+  (*   (\* Turn the outermost layer of a SimpleType into a CompactType, leaving type *\) *)
+  (*   (\* variables untransformed *\) *)
+  (*   let rec go_outer ty pol = *)
+  (*     match ty with *)
+  (*     | Primitive p -> {empty with prims = PrimSet.singleton p}  *)
+  (*     | Function (l, r) ->  *)
+  (*        {empty with func = Some (go_outer l (inv pol), go_outer r pol)} *)
+  (*     | Record fs -> *)
+  (*        {empty with rcd = Some (map_of_rcd (fun (nm, t) -> (nm, go_outer t pol)) fs)} *)
+  (*     | Variable tv -> *)
+  (*        let tvs = close_over(VarSet.singleton tv) *)
+
+
+    
 
 
 
