@@ -1,6 +1,5 @@
 module P = Parse
 open Data
-open Either
 
 module Context = Map.Make(String)
 
@@ -8,28 +7,29 @@ module Context = Map.Make(String)
 
 (* A context which stores the type of a variable. Because this can be a simple *)
 (* type or polymorphic type, we wrap in a first-class module *)
-type type_scheme = ((SimpleTypeScheme.t, PolymorphicTypeScheme.t) Either.t)
-let instantiate x l : simple_type =
-  match x with
-  | Left st -> SimpleTypeScheme.instantiate st l
-  | Right pt -> PolymorphicTypeScheme.instantiate pt l
-let level x : int =
-  match x with
-  | Left st -> SimpleTypeScheme.level st
-  | Right pt -> PolymorphicTypeScheme.level pt
 
+(* Instances of a type scheme *)
 
-type ctx = type_scheme Context.t
+module type TScheme = sig
+  module TypeScheme : TypeScheme
+  val this : TypeScheme.t
+  end
 
+let mkTScheme (type a) (module M : TypeScheme with type t = a)
+      (x : a) : (module TScheme) = 
+  (module struct
+     module TypeScheme = M
+     let this = x
+   end : TScheme) 
 
+type ctx = (module TScheme) Context.t
 
 let err msg = raise (TypecheckError msg)
 
 let swap f a b = f b a
 
-  
 
-    
+  
 
 (* Constrain the lhs to be a subtype of the rhs. For performance reasons, the
    function caches results. In order to represent this, we have constrain be a
@@ -158,14 +158,16 @@ and extrude (ty : simple_type) (pol : polarity) (lvl : int)
    the actual MLsub types*)
 
 
-let rec typecheck raw_expr ctx (lvl: int) : simple_type = 
+let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type = 
   match raw_expr with
   (* Type checking primitives is relatively easy *)
   | P.Int _  -> Primitive PrimInt
   | P.Bool _ -> Primitive PrimBool
 
   (* Type-checking a name relatively easy - just lookup that name in the context *)
-  | P.Var name -> instantiate (Context.find name ctx) lvl
+  | P.Var name ->
+     let open (val (Context.find name ctx) : TScheme) in
+     TypeScheme.instantiate this lvl
 
   (* Type-checking a record is also easy - just typecheck all the subexpressions *)
   | P.Record xs ->
@@ -176,7 +178,16 @@ let rec typecheck raw_expr ctx (lvl: int) : simple_type =
      new context *) 
   | P.Fun (name, body) -> 
      let param_type = Variable (fresh_var lvl) in
-     Function (param_type, typecheck body (Context.add name (Left param_type) ctx) lvl) 
+     Function (param_type,
+               typecheck
+                 body
+                 (Context.add
+                    name
+                    (mkTScheme
+                       (module SimpleTypeScheme)
+                       param_type)
+                    ctx)
+                 lvl) 
 
   (* A record access is just a function, and so type-checking is very similar:
      with the prime difference being that we know the input type must be a
@@ -230,14 +241,22 @@ let rec typecheck raw_expr ctx (lvl: int) : simple_type =
      let val_t = typecheck e ctx (lvl + 1) in (* note the level increase *)
      typecheck
        bod
-       (Context.add name (Right (PolymorphicTypeScheme.mkpt lvl val_t)) ctx)
+       (Context.add
+          name
+          (mkTScheme (module PolymorphicTypeScheme)
+             (PolymorphicTypeScheme.mkpt lvl val_t)) ctx)
        lvl
   (* Recursive Let Binding*)
   | P.LetRec (name, e1, bod) ->
      let val_t = typecheck e1 ctx (lvl + 1) in
      typecheck
        bod
-       (Context.add name (Right (PolymorphicTypeScheme.mkpt lvl val_t)) ctx)
+       (Context.add
+          name
+          (mkTScheme
+             (module PolymorphicTypeScheme)
+             (PolymorphicTypeScheme.mkpt lvl val_t))
+          ctx)
        lvl
 
 let infer_type raw_expr = typecheck raw_expr Context.empty 0

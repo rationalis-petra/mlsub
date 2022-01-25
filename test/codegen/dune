@@ -1,0 +1,4 @@
+(test
+  (name codegen_test)
+  (modules codegen_test)
+  (libraries codegen ounit2))

@@ -1,8 +1,6 @@
-
 open Type.Internal.Data
 open Type.Internal.Check
 open OUnit2
-open Either
 
 let typeTest name expr simple_type = 
   name >:: (fun _ -> assert_equal simple_type (infer_type expr))
@@ -24,7 +22,10 @@ let tests = "test suite for typing" >::: [
   typeTest "integer3"   (Int (-10))  (Primitive PrimInt);
 
   (* Variables in a Dummy Context *) 
-  (let context = (Context.empty |> Context.add "x" (Left (Primitive PrimInt))) in
+  (let context = (Context.empty
+                  |> Context.add "x" (mkTScheme
+                                        (module SimpleTypeScheme)
+                                        (Primitive PrimInt))) in
   typeTestCtxt "variable" (Var "x") (Primitive PrimInt) context);
 
   (* Operators with Primitives *)

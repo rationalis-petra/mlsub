@@ -1,13 +1,18 @@
-open Parse
-open Type
+module AST = Codegen.AST
 
-
-let (<<) f g x = f (g x)
 let (>>) f g x = g (f x)
 
-let () =
-  let op = expr_of_string >> infer_type >> string_of_type >> print_endline in
-  op "if 1 > 2 + 3 then fun x -> x + 2 else if true then 2 else 3"
+module StrMap = Map.Make(String)
+
+let rec main_loop () = 
+  let op = Parse.expr_of_string >>
+           AST.expr_of_pexpr >>
+           (fun x -> Codegen.codegen_expr x StrMap.empty )>>
+           Llvm.dump_value >>
+           (fun () -> print_endline "") in
+  let line = read_line () in
+  if line == "quit" then ()
+  else (op line; main_loop ())
 
 
-
+let () = main_loop()

@@ -23,5 +23,6 @@ module Internal = struct
   module Check = Type_check
   module Target = Type_target
   module Coalesce = Type_coalesce
+  module Simplify = Type_simplify
 end
 

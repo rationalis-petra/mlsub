@@ -21,7 +21,6 @@ and variable_state = {
     level : int;
     mutable uid : int }
 
-let v_as_type (v : variable_state) : string = "ɑ" ^ string_of_int (v.uid)
 
 
 type polarity = Positive | Negative
@@ -42,6 +41,8 @@ type mlsub_type
   | VariableType  of string
   | PrimitiveType of primitive
 
+let vst_to_str (v : variable_state) : string = "ɑ" ^ string_of_int (v.uid)
+let vst_to_mlsub_type (v : variable_state) : mlsub_type = VariableType ("ɑ" ^ string_of_int (v.uid))
 
 (* Utility functions *)
 let var_id_counter = ref 0
@@ -50,9 +51,9 @@ let fresh_var l =
     let v = !var_id_counter in
     var_id_counter := v + 1;
     {lower_bounds = [];
-               upper_bounds = [];
-               level = l;
-               uid = v}
+     upper_bounds = [];
+     level = l;
+     uid = v}
   end
 
 
