@@ -295,8 +295,17 @@ module CompactTypeScheme = struct
    For more information, see section 4: Type simplification tradeoffs of the
    paper "The Simple Essence of Algebraic Subtyping" *) 
 
-
+(*
   let simplify_type (ctx : compact_type_scheme) : t_type = 
+
+    (* A set module which orders variable state by uid *)
+  module VarUidSet = Set.Make(module
+                                type t = variable_state
+                                let compare x y = Int.compare x.uid y.uid)
+
+    let all_vars = VarMap.to_seq
+                   cty.rec_vars
+
       begin
         VarStateSet.map
           (fun tv ->
@@ -361,6 +370,7 @@ module CompactTypeScheme = struct
          else ()
     )
     !all_vars
+ *)
 
   type compact_type_or_variable =
     | CompactType of CompactType.t
@@ -374,77 +384,88 @@ module CompactTypeScheme = struct
          CompactType.compare t1 t2
       | (Variable v1, Variable v2) ->
          CompVarSt.compare v1 v2
-      | (CompactType _, _) -> return 1
-      | (_, Variable _) -> return -1
+      | (CompactType _, _) -> 1
+      | (_, _) -> -1
   end
 
   module CTOVBoolMap = 
-    Map.Make(CompProd (CTOVComp) (Bool))
+    Map.Make(CompProd (CTOVComp) (CompPol))
 
   (* the final stage in the process; this function takes a compacted type and
    * returns an immutable value of type mlsub_type  *)
-  let coalesce_compact_type (cty : compact_type) : mlsub_type = 
-    let go (ty : compact_type_or_variable) (pol : polarity)
-          (in_process : (() -> type_variable) CTOVBoolMap.t) : mlsub_type = 
-      match CTOVBoolMap.find_opt in_process with
-      | Some y ->
+  let coalesce_compact_type (cty : compact_type_scheme) : mlsub_type = 
+    let rec go (ty : compact_type_or_variable) (pol : polarity)
+          (in_process : (unit -> mlsub_type) CTOVBoolMap.t) : mlsub_type = 
+      match CTOVBoolMap.find_opt (ty, pol) in_process with
+      | Some t ->
          (let res = t () in
-          (* print_endline "REC[$pol] $ty -> $res"; *) res) | None ->
+          (* print_endline "REC[$pol] $ty -> $res"; *)
+          res)
+      | None ->
          let is_recursive = ref false in 
-         let res_ref = ref None in 
-         (* the code will only try and access the value of res if the variable
-          * is recursive. Therefore, we 'hide' it behind a lazily in a function
+         (* the code will only try and access the value of v if the variable
+          * is recursive. Therefore, we 'hide' it behind a lazy function
           * which will set is_recursive to true when it is called, and return
           * something of type mlsub_type *)
-         let res () = 
-             match (!res_ref) with
-             | Some x -> x
-             | None ->
-               (is_recursive := true;
-                res_ref := vst_to_mlsub_type
-                             (match ty with
-                              | Variable v -> v
-                              | _ -> fresh_var 0);
-               !res_ref) in
-         let new_inprocess = CTOVBoolMap.add (ty, pol) (fun () -> v ())
+         let v_ref = ref None in 
+         let v () = 
+           match (!v_ref) with
+           | Some x -> x
+           | None ->
+              (is_recursive := true;
+               let new_res = 
+                 (match ty with
+                  | Variable v -> v
+                  | _ -> fresh_var 0) in
+               v_ref := Some new_res;
+               new_res) in
+         let new_in_process = CTOVBoolMap.add (ty, pol) (fun () ->
+                                  vst_to_mlsub_type (v ()))
                                in_process in
-         let res = 
+         let res : mlsub_type = 
            match ty with
-           | Variable tv -> Option.fold
-                              (vst_to_mlsub_type tv)
-                              (fun x -> go x pol)
-                              (VarMap.find_opt tv cty.rec_vars)
+           | Variable tv ->
+              (match (VarMap.find_opt tv cty.rec_vars) with
+               | Some x -> go (CompactType x) pol new_in_process
+               | None -> (vst_to_mlsub_type tv))
+                              
            (* A compact_type is either a union of types or an intersection of
             * types, dependent on polarity. This code will recursively coalesce
             * the sub-structure of the compact type into a list, then fold over
             * that list with either a union or intersection, giving us our result *)
-           | CompactType {vars, prims, rcd, func} ->
-              let (extr, mrg) = if pol then
-                                  (Bottom, Union)
+           | CompactType {vars; prims; rcd; func} ->
+              let (extr, mrg) = if pol = Positive then
+                                  (Bottom, fun x y -> Union (x, y))
                                 else
-                                  (Top, Intersection) in 
+                                  (Top, fun x y -> Intersection (x, y)) in 
               let type_as_list = 
                 List.fold_left (@) []
                   [List.map
-                     (fun x -> go x pol)
-                     (List.of_seq (VarStateSet.to_seq vars)); 
-                   List.map (PrimitiveType) (List.of_seq (PrimSet.to_seq prims));
+                     (fun x -> go (Variable x) pol new_in_process)
+                     (List.of_seq (VarStateSet.to_seq vars)) ;
+                   List.map
+                     (fun x -> PrimitiveType x)
+                     (List.of_seq (PrimSet.to_seq prims));
                    List.map
                      (fun fs -> RecordType (List.map
-                                              (fun (n, v) -> (n, go v pol))
+                                              (fun (n, v)
+                                               -> (n, go (CompactType v) pol new_in_process))
                                               (List.of_seq (SMap.to_seq fs))))
                      (List.of_seq (Option.to_seq rcd));
                    List.map
-                     (fun (l, r) -> FunctionType (go l (inv pol), go r pol))
+                     (fun (l, r) -> FunctionType (go (CompactType l) (inv pol) new_in_process,
+                                                  go (CompactType r) pol new_in_process))
                      (List.of_seq (Option.to_seq func))] in
 
-              match (List.fold_left (fun x opt ->
-                         Option.fold None (fun y -> mrg (x, y))
-                           opt) None type_as_list) with
-              | Some x -> x
-              | None -> extr
-         in if !is_recursive then RecursiveType (v, res) else res
+              let rec type_opt_of_type_list = function
+                | x :: (y :: xs) -> mrg x (type_opt_of_type_list (y :: xs))
+                | x :: [] -> x
+                | [] -> extr in
+              (* the final value of res *)
+              type_opt_of_type_list type_as_list in
+
+         if !is_recursive then RecursiveType (vst_to_str (v ()), res) else res
     in
-    go cty.term Positive Map.empty
- 
+    go (CompactType cty.term) Positive CTOVBoolMap.empty
+  
 end

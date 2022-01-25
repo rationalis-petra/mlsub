@@ -95,7 +95,7 @@ let coalesce_type (t : simple_type) =
           let mrg = match polar with
                   | Positive -> (fun x y -> Union (x, y))
                   | Negative -> (fun x y -> Intersection (x, y)) in
-          let res = List.fold_left mrg (VariableType (v_as_type v)) bound_types in
+          let res = List.fold_left mrg (vst_to_mlsub_type v) bound_types in
        (* Finally, lookup this variable name in the recursive map *)
           match (Hashtbl.find_opt recursive vpol) with
           | Some (VariableType n) -> RecursiveType(n, res)
