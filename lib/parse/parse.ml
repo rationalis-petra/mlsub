@@ -126,6 +126,9 @@ let pBool =
   and pFalse = (string "false" *> return (Bool false))
   in toTok (pTrue <|> pFalse)
 
+(* the pVarStr parses a variable name into a string. It is relatively simple:
+ * 1.  *)
+
 let pVarStr : string t =
   let rec elem = function
     | (x, y::_) when x = y -> true
@@ -181,15 +184,14 @@ let pIf expr : expr t =
     (fun e1   -> (token "else" *> expr) >>|
     (fun e2   -> If (cond, e1, e2))))
 
-let pLet expr : expr t =
-  let letBody ctor = pVarStr >>=
-    (fun var -> (token "=" *> expr) >>=
+let mkpLet keyword ctor expr : expr t =
+  (token keyword *> pVarStr) >>=
+    (fun var -> (token "=" *> expr <* pWhitespace) >>=
     (fun e1  -> (token "in" *> expr) >>|
     (fun e2  -> ctor var e1 e2)))
-  in 
-  (token "let" *> letBody (fun v e1 e2 -> Let (v, e1, e2)))
-  <|>
-  (token "let rec" *> letBody (fun v e1 e2 -> LetRec (v, e1, e2)))
+
+let pLet = mkpLet "let" (fun v e1 e2 -> Let (v, e1, e2))
+let pLetRec = mkpLet "let rec" (fun v e1 e2 -> LetRec (v, e1, e2))
 
 let pFun expr : expr t =
   (token "fun" *> pVarStr) >>=
@@ -201,11 +203,12 @@ let pExprNoApply : expr t =
   fix (fun expr ->
       choice [pIf expr;
               pLet expr;
+              pLetRec expr;
               pFun expr;
               pRecord expr;
               pBinary expr;
               pAccess;
-              pVar])
+              pVar;])
 
 let pExpr =
   let rec buildApply = function
@@ -227,3 +230,4 @@ let prog_of_string (str:string) : expr list =
   match parse_string ~consume:All (pProgram) str with
   | Ok v      -> v
   | Error msg -> failwith ("ParseError: " ^ msg)
+

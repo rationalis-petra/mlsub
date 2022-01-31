@@ -2,7 +2,9 @@
 
 if [ "$1" == "run" ]; then 
     eval $(opam env)
-    dune build && dune exec ./bin/main.exe
+    args=($@)
+    arr=("${args[@]:1}")
+    dune build && dune exec ./bin/main.exe $arr
 elif [ "$1" == "test" ]; then
     eval $(opam env)
     dune test
