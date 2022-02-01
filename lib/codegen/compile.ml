@@ -1,6 +1,9 @@
 (* The AST module contains the expr type, as well as information on how to *)
 (* convert from the parser's expr type*)
 
+type flag_type = {assert_valid : bool ref}
+let flags =
+  {assert_valid = ref true}
 
 module AST = struct
   type pexpr = Parse.expr
@@ -62,13 +65,23 @@ let gen_unique_name () =
 
 
 
-
 let context = global_context ()
 let the_module = create_module context "MLSub"
 let builder = builder context
 
+(* CODEGEN TYPES *)
+(* Prime type: cast to get other types *)
 let int_type = i64_type context
-(* let str_type = Llvm.str *)
+let int_ptr_type = pointer_type int_type
+
+(* Closures (lambdas) *)
+let closure_fn_type = function_type int_type [|int_type; int_type|]
+let closure_record_type = array_type int_type 2 
+let closure_type = pointer_type closure_record_type
+
+
+
+(* CODEGEN FUNCTIONS *)
 
 (* given an expression and a symtable (map of variables to values), generate *)
 (* an LLVM IR code segment for an expression *)
@@ -114,23 +127,14 @@ let rec codegen_expr expr symtable =
      for a function will generate a new global function with *) 
   (* TODO: convert from function to closure (funptr, environment) values *)
   | Fun (var, expr) ->
-     let current_bb = insertion_block builder in
      let num = (!lambda_counter) in
      (lambda_counter := num + 1;
       let name = gen_unique_name () in
-      (* TODO: switch to *)
-      (* let func = codegen_lambda ((name, Array.of_list [var]), expr) *)
-      let func = codegen_func ((name, [|(var, int_type)|]), expr) in
-
-      (* If we just return here, then any newly generated code will be inserted
-       * into the function we just created, which is BAD. Hence, we must point
-       * the builder at the basic block we were in at the beginning of the function *)
-      position_at_end current_bb builder;
-      
+      let func = codegen_closure name var expr symtable in
       func) 
 
   | Apply (e1, e2) ->
-  (* Note: LLVM IR has no lambdas: need to generate named functions *)
+     (* Note: LLVM IR has no lambdas: need to generate named functions *)
      (* TODO: switch to lambdas *)
      let callee = codegen_expr e1 symtable in
      let args = Array.of_list [codegen_expr e2 symtable] in
@@ -169,21 +173,14 @@ let rec codegen_expr expr symtable =
 
      phi
 
-  (* | _ -> raise (CodeGenError "codegen_expr incomplete") *)
+(* | _ -> raise (CodeGenError "codegen_expr incomplete") *)
 
 
-(* Handling of lambda (anonymous) functions: 
- * 1. Generate a (non-capturing) global function
- * 2. Return a pointer to said function
- * 3. Funcalls dereference & call the pointer
- *)
-
-(* NOTE: CURRENTLY FUNCTIONS ARE NOT CLOSURES AND CAN ONLY HAVE INT_64
- * ARGUMENTS/RETURN VALUES! *)
 
 (* Much like in C/C++, we have functions declarations (in LLVM: prototypes)
- * that describe a function, e.g. i64 add (i64: a, i64: b). The function *
- * codegen_proto function is used to generate these prototypes *)
+ * that describe a function, e.g. i64 add (i64: a, i64: b). The function 
+ * codegen_proto function is used to generate these prototypes given a name and 
+ * a list of (argname, type) pairs. All functions have return type int_type *)
 
 and codegen_proto (name, args) = 
   let type_arr = Array.map (fun (_, y) -> y) args in
@@ -205,39 +202,143 @@ and codegen_proto (name, args) =
   in
   f
 
-(* Generate code for a TOPLEVEL function. When generating closures-functions, we *)
-(* first create a new (unique) name and use it to generate a toplevel function *)
-(* which is then bundled with a record into a closure object *)
+(* Generate code for a TOPLEVEL function. This is not for lambda functions! *)
 
-(* TODO: carry context through codegen_func *)
+(* codegen_func generates a new toplevel function with a given argument-list *)
+(* and body*)
 and codegen_func ((name, args), body) = 
   (* Generate a function handle (prototype) *)
-  let function_handle = codegen_proto (name, args) in
+  let func_handle = codegen_proto (name, args) in
   (* Create a new basic block to start insertion into. *)
-  let bb = append_block context "entry" function_handle in
+  let bb = append_block context "entry" func_handle in
   position_at_end bb builder;
   try
     let symtable =
       StrMap.of_seq (Array.to_seq 
                        (Util.arr_zip
                           (Array.map (fun (x, _) -> x) args)
-                          (params function_handle))) in 
+                          (params func_handle))) in 
     let ret_val = codegen_expr body symtable in
 
     (* Finish off the function. *)
     let _ = build_ret ret_val builder in
 
     (* Validate the generated code, checking for consistency. *)
-    Llvm_analysis.assert_valid_function function_handle;
+    (if !(flags.assert_valid) then
+       Llvm_analysis.assert_valid_function func_handle
+     else
+       ());
 
-    function_handle
+    func_handle
   with e ->
-    delete_function function_handle;
+    delete_function func_handle;
     raise e
 
-(* 
-and codegen_lambda 
-*)
+(* Codegen closure will:
+ * 1. Generate an array representing the environment
+ * 2. Generate a function which takes an argument and a context, corresponding
+ *    to the provided body
+ * 3. Return a pointer to a (f, r) pair, where f is the generated function and r
+ * is the generated record *)
+
+and codegen_closure name argname body symtable = 
+  (* Remember where in the code we were (relevant later) *)
+  let current_bb = insertion_block builder in
+
+  (* Discover which variables the sub-expression uses:  *)
+  let rec get_free_vars body = 
+    match body with
+    | Var v -> StrSet.singleton v
+    | Record lst ->
+       List.fold_right
+         (fun (_, e1) vs ->
+           StrSet.union (get_free_vars e1) vs) lst StrSet.empty
+    | Op (_, e1, e2) ->
+       StrSet.union (get_free_vars e1) (get_free_vars e2)
+    | Fun (v, bdy) ->
+       StrSet.remove v (get_free_vars bdy)
+    | Let (v, e1, e2) -> 
+       StrSet.remove v
+         (StrSet.union (get_free_vars e1) (get_free_vars e2))
+    | Apply (e1, e2) ->
+       StrSet.union (get_free_vars e1) (get_free_vars e2)
+    | _ -> StrSet.empty in
+
+  (* The variables we want to place in a context *)
+  (* Note that the argument of the function may be in the set of free
+   * variables, so we remove it *)
+  let ctx_vars = Array.of_seq (StrSet.to_seq (StrSet.remove argname (get_free_vars body))) in
+
+  (* Build the array representing the environment: first allocate, then insert
+   * variables  *)
+  let ctx_ll = build_array_malloc int_type
+                 (const_int int_type (Array.length ctx_vars))
+                 "closure_env" builder in
+  Array.iteri (fun _idx _var ->
+      let idx = codegen_expr (Int _idx) symtable in
+      let var = codegen_expr (Var _var) symtable in
+      ignore (build_insertelement ctx_ll var idx "tmpinsert" builder)) ctx_vars;
+
+  (* First generate the function handle *)
+  let func_handle = codegen_proto (name, [|(argname, int_type); ("env", int_type)|]) in
+  (* Create a new basic block to start insertion into. *)
+  let bb = append_block context "entry" func_handle in
+  position_at_end bb builder;
+
+  (* Cast the second argument to an i64 array, call it closure_environemnt *)
+  let closure_env = build_inttoptr (Array.get (params func_handle) 1) int_ptr_type 
+                      "captured_env" builder in
+
+  (* Now, generate the new mapping of variables to values as looking up elements
+   * in the array. The /second/ argument must first be cast into the array type *)
+
+  let new_symtable1 =
+    Array.fold_right 
+      (fun (varname, llvalue) map -> StrMap.add varname llvalue map)
+      (Array.mapi (fun idx varname ->
+           (varname,
+            build_extractelement closure_env (const_int int_type idx)
+              ("envvar:" ^ varname) builder))
+         ctx_vars)
+      StrMap.empty in
+
+  (* Map the function argument name to the corresponding parameter in the
+   * symbol table. *)
+  let new_symtable2 =
+    StrMap.add argname (Array.get (params func_handle) 0) new_symtable1
+  in
+
+  (* Now, generate the function body + return *)
+  let compiled_body = codegen_expr body new_symtable2 in
+  ignore (build_ret compiled_body builder);
+
+  (if !(flags.assert_valid) then
+     Llvm_analysis.assert_valid_function func_handle
+   else
+     ());
+
+  (* Switch back to generating code in the original basic block *)
+  position_at_end current_bb builder;
+
+  (* Generate the closure's record *)
+  let func_as_int = build_ptrtoint func_handle int_type "func_as_int" builder in
+  let env_as_int = build_ptrtoint ctx_ll int_type "env_as_int" builder in
+  let closure_record = build_array_malloc
+                         int_type
+                         (const_int int_type 2)
+                         "closure_record"
+                         builder
+  in
+  ignore (build_store func_as_int closure_record builder);
+  (* we need to do some pointer arithmetic: cast to int & back to pointer... yuk!*)
+  let cr_as_int = build_ptrtoint closure_record int_type "clrint1" builder in
+  let cr_as_int2 = build_add cr_as_int (const_int int_type 1) "clrint2" builder in
+  let cr_2 = build_inttoptr cr_as_int2 int_ptr_type "closure_record2" builder in
+  ignore (build_store env_as_int cr_2 builder);
+
+  (* cast to int and return *)
+  build_ptrtoint closure_record int_type "closure_as_int" builder
+
 
 (* This *)
 let codegen_program expr =
@@ -264,7 +365,10 @@ let codegen_program expr =
     let _ = build_ret ret_val builder in
 
     (* Validate the generated code, checking for consistency. *)
-    Llvm_analysis.assert_valid_function function_handle;
+    (if !(flags.assert_valid) then
+       Llvm_analysis.assert_valid_function function_handle
+     else
+       ());
 
     (* Return the module *)
     the_module
@@ -273,7 +377,7 @@ let codegen_program expr =
     raise e
 
 
-(* This is codegen initialisation code, where I register a function to put *)
-(* integers to stdio *)
+          (* This is codegen initialisation code, where I register a function to put *)
+          (* integers to stdio *)
 
-  
+
