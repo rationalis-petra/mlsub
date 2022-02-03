@@ -298,11 +298,18 @@ and codegen_closure name argname body symtable =
   let closure_ptr = build_array_malloc int_type
                  (const_int int_type (Array.length ctx_vars))
                  "closure_env" builder in
+  let closure_as_int = build_ptrtoint closure_ptr int_type "closure_as_int"
+                         builder in
 
   Array.iteri (fun _idx _var ->
       let idx = codegen_expr (Int (_idx + 1)) symtable in
       let var = codegen_expr (Var _var) symtable in
-      ignore (build_insertelement closure_ptr var idx "tmpinsert" builder)) ctx_vars;
+      let closure_idx = build_add closure_as_int idx
+                          "closure_idx" builder in
+      let closure_idx_ptr = build_inttoptr closure_idx int_ptr_type
+                              "tmpaddr" builder in
+      ignore (build_store var closure_idx_ptr builder))
+    ctx_vars;
 
   (* First generate the function handle *)
   let func_handle = codegen_proto
@@ -318,12 +325,16 @@ and codegen_closure name argname body symtable =
   (* Now, generate the new mapping of variables to values as looking up elements
    * in the array. The /second/ argument must first be cast into the array type *)
   let new_symtable1 =
+    let ptrint = build_ptrtoint closure_env int_type "envint" builder in
     Array.fold_right 
       (fun (varname, llvalue) map -> StrMap.add varname llvalue map)
       (Array.mapi (fun idx varname ->
            (varname,
-            build_extractelement closure_env (const_int int_type idx)
-              ("envvar:" ^ varname) builder))
+            (* cast to int -> add appropriate idx -> cast back to ptr -> store *)
+            let ptridx = build_add ptrint (const_int int_type idx)
+                           "envintx" builder in
+            let ptr = build_inttoptr ptridx int_ptr_type "ptr" builder in
+            build_load ptr "envtmp" builder))
          ctx_vars)
       StrMap.empty in
 
@@ -364,42 +375,46 @@ and codegen_closure name argname body symtable =
 
 (* This *)
 let codegen_program expr =
-  (* Generate a function handle (prototype) *)
-  let args = [||] in
-  let function_handle = codegen_proto ("main", args) in
+  (* Declare the existence of global functions for runtime linkage *)
+  let global_decls = [|("printi", function_type int_type [|int_type|]);
+                |] in
+  let globals = 
+    Array.map (fun (name, ft) ->
+        (name, declare_function name ft the_module))
+      global_decls in
+
+  (* Generate a function handle for main *)
+  let main_type =
+    let i32_t = i32_type context in
+    let chr_t = i8_type context in
+    function_type i32_t [|i32_t; pointer_type (pointer_type chr_t)|] in
+
+  let main_handle = declare_function "main" main_type the_module in
+
   (* Create a new basic block to start insertion into. *)
-  let bb = append_block context "entry" function_handle in
+  let bb = append_block context "entry" main_handle in
   position_at_end bb builder;
-  try
-    let symtable =
-      StrMap.of_seq (Array.to_seq 
-                       (Util.arr_zip args (params function_handle))) in
-    (* Generate Main Body & insert into function block *)
-    let func_body = codegen_expr expr symtable in
 
-    (* "Cap" main function with return 0 *)
-
-    (* Assign the body to a mutable variable, to insert it into the function's
-     * basic_block *)
-    (* let alloc = build_alloca int_type "x" builder  in *)
-    (* ignore ( build_store func_body alloc builder); *)
-    (* let ret_val = codegen_expr (AST.Int 0) StrMap.empty in *)
-    let _ = build_ret func_body builder in
-
-    (* Validate the generated code, checking for consistency. *)
-    (if !(flags.assert_valid) then
-       Llvm_analysis.assert_valid_function function_handle
-     else
-       ());
-
-    (* Return the module *)
-    the_module
-  with e ->
-    delete_function function_handle;
-    raise e
+  let symtable =
+    StrMap.of_seq (Array.to_seq globals) in
+  (* Generate Main Body & insert into function block *)
+  let main_body = codegen_expr expr symtable in
 
 
-          (* This is codegen initialisation code, where I register a function to put *)
-          (* integers to stdio *)
+  (* Call printi on the result *)
+  ignore (
+    let (_, printi) = Array.get globals 0 in
+    build_call printi [|main_body|] "prntout" builder );
 
+  (* "Cap" main function with return 0 *)
+  let ret_val = const_int (i32_type context) 0 in
+  ignore (build_ret ret_val builder);
 
+  (* Validate the generated code, checking for consistency. *)
+  (if !(flags.assert_valid) then
+     Llvm_analysis.assert_valid_function main_handle
+   else
+     ());
+
+  (* Return the module *)
+  the_module
