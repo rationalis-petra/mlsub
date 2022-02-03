@@ -68,11 +68,19 @@ let tests = "test suite for parsing" >::: [
   parseTest "if_simple"
     (If (Int 1, Int 2, Int 7))
     "if 1 then 2 else 7";
-  parseTest "if_complex"
+
+  parseTest "if_complex1"
     (If (Op (Gre, Int 1, Op (Add, Int 2, Int 3)),
          Fun ("x", Op (Add, Var "x", Int 2)),
          If (Bool true, Int 2, Int 3)))
     "if 1 > 2 + 3 then fun x -> x + 2 else if true then 2 else 3";
+
+  (* parseTest "if_complex2" *)
+  (*   (If (Op (Gre, Int 1, Op (Add, Int 2, Int 3)), *)
+  (*        Apply(Var "f", Int 3), *)
+  (*        Op(Add, Int 5, Int 2))) *)
+  (*   "if (100) then 3 else 5 + 2"; *)
+
 
   (* Let Expression *)
   parseTest "let_simple"

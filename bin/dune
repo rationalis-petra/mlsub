@@ -1,4 +1,4 @@
 (executable
  (public_name MLsub)
  (name main)
- (libraries parse type codegen llvm))
+ (libraries parse type codegen llvm llvm.bitwriter cmdliner))

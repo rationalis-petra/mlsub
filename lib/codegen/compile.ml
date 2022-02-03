@@ -1,6 +1,7 @@
 (* The AST module contains the expr type, as well as information on how to *)
 (* convert from the parser's expr type*)
 
+(* For debugging only! *)
 type flag_type = {assert_valid : bool ref}
 let flags =
   {assert_valid = ref true}
@@ -64,10 +65,15 @@ let gen_unique_name () =
    !name)
 
 
-
+(* Initialisation *)
+(* context *)
 let context = global_context ()
+(* module: create the module and set the target triple (x86) *)
 let the_module = create_module context "MLSub"
+let () = set_target_triple "x86_64-pc-linux-gnu" the_module
 let builder = builder context
+
+(* Declare external functions: *)
 
 (* CODEGEN TYPES *)
 (* Prime type: cast to get other types *)
@@ -75,10 +81,8 @@ let int_type = i64_type context
 let int_ptr_type = pointer_type int_type
 
 (* Closures (lambdas) *)
-let closure_fn_type = function_type int_type [|int_type; int_type|]
-let closure_record_type = array_type int_type 2 
-let closure_type = pointer_type closure_record_type
-
+let closure_fn_type = function_type int_type [|int_type; int_ptr_type|]
+let closure_fn_ptr_type = pointer_type closure_fn_type
 
 
 (* CODEGEN FUNCTIONS *)
@@ -134,11 +138,30 @@ let rec codegen_expr expr symtable =
       func) 
 
   | Apply (e1, e2) ->
-     (* Note: LLVM IR has no lambdas: need to generate named functions *)
-     (* TODO: switch to lambdas *)
+     (* In order to call a function, we need to: 
+      * 1. Cast the value to an int*, call it λ
+      * 2. Dereference to get x, then cast x to int fnc(int int)
+      * 3. Add 1 to get the environment (second argument to fnc) 
+      * 4. Apply to the function to the arguments *)
+
      let callee = codegen_expr e1 symtable in
-     let args = Array.of_list [codegen_expr e2 symtable] in
-     build_call callee args "calltmp" builder
+
+     (* 1 *)
+     let lambda = build_inttoptr callee int_ptr_type "closure" builder in
+
+     (* 2 *)
+     let func_int = build_load lambda "func_int" builder in
+     let func = build_inttoptr func_int closure_fn_ptr_type "func" builder in
+
+     (* 3 *)
+     let env_int = build_add callee (const_int int_type 1) "env_int" builder in
+     let env_ptr = build_inttoptr env_int int_ptr_type "env_ptr" builder in
+
+     (* 4 *)
+     let arg = codegen_expr e2 symtable in
+
+     let args = [|arg; env_ptr|] in
+     build_call func args "calltmp" builder
 
 
 
@@ -267,31 +290,33 @@ and codegen_closure name argname body symtable =
   (* The variables we want to place in a context *)
   (* Note that the argument of the function may be in the set of free
    * variables, so we remove it *)
-  let ctx_vars = Array.of_seq (StrSet.to_seq (StrSet.remove argname (get_free_vars body))) in
+  let ctx_vars = Array.of_seq
+                   (StrSet.to_seq (StrSet.remove argname (get_free_vars body))) in
 
   (* Build the array representing the environment: first allocate, then insert
-   * variables  *)
-  let ctx_ll = build_array_malloc int_type
+   * variables *)
+  let closure_ptr = build_array_malloc int_type
                  (const_int int_type (Array.length ctx_vars))
                  "closure_env" builder in
+
   Array.iteri (fun _idx _var ->
-      let idx = codegen_expr (Int _idx) symtable in
+      let idx = codegen_expr (Int (_idx + 1)) symtable in
       let var = codegen_expr (Var _var) symtable in
-      ignore (build_insertelement ctx_ll var idx "tmpinsert" builder)) ctx_vars;
+      ignore (build_insertelement closure_ptr var idx "tmpinsert" builder)) ctx_vars;
 
   (* First generate the function handle *)
-  let func_handle = codegen_proto (name, [|(argname, int_type); ("env", int_type)|]) in
+  let func_handle = codegen_proto
+                      (name, [|(argname, int_type); ("env", int_ptr_type)|]) in
+
   (* Create a new basic block to start insertion into. *)
   let bb = append_block context "entry" func_handle in
   position_at_end bb builder;
 
-  (* Cast the second argument to an i64 array, call it closure_environemnt *)
-  let closure_env = build_inttoptr (Array.get (params func_handle) 1) int_ptr_type 
-                      "captured_env" builder in
+  (* Variable to hold the second argument *)
+  let closure_env = Array.get (params func_handle) 1 in
 
   (* Now, generate the new mapping of variables to values as looking up elements
    * in the array. The /second/ argument must first be cast into the array type *)
-
   let new_symtable1 =
     Array.fold_right 
       (fun (varname, llvalue) map -> StrMap.add varname llvalue map)
@@ -320,16 +345,12 @@ and codegen_closure name argname body symtable =
   (* Switch back to generating code in the original basic block *)
   position_at_end current_bb builder;
 
-  (* Generate the closure's record *)
+  (* Store the function in the closure's memory *)
   let func_as_int = build_ptrtoint func_handle int_type "func_as_int" builder in
-  let env_as_int = build_ptrtoint ctx_ll int_type "env_as_int" builder in
-  let closure_record = build_array_malloc
-                         int_type
-                         (const_int int_type 2)
-                         "closure_record"
-                         builder
-  in
-  ignore (build_store func_as_int closure_record builder);
+  ignore (build_store func_as_int closure_ptr builder);
+  build_ptrtoint closure_ptr int_type "closure_as_int" builder
+
+  (* 
   (* we need to do some pointer arithmetic: cast to int & back to pointer... yuk!*)
   let cr_as_int = build_ptrtoint closure_record int_type "clrint1" builder in
   let cr_as_int2 = build_add cr_as_int (const_int int_type 1) "clrint2" builder in
@@ -338,6 +359,7 @@ and codegen_closure name argname body symtable =
 
   (* cast to int and return *)
   build_ptrtoint closure_record int_type "closure_as_int" builder
+  *)
 
 
 (* This *)
@@ -359,10 +381,10 @@ let codegen_program expr =
 
     (* Assign the body to a mutable variable, to insert it into the function's
      * basic_block *)
-    let alloc = build_alloca int_type "x" builder  in
-    ignore ( build_store func_body alloc builder);
-    let ret_val = codegen_expr (AST.Int 0) StrMap.empty in
-    let _ = build_ret ret_val builder in
+    (* let alloc = build_alloca int_type "x" builder  in *)
+    (* ignore ( build_store func_body alloc builder); *)
+    (* let ret_val = codegen_expr (AST.Int 0) StrMap.empty in *)
+    let _ = build_ret func_body builder in
 
     (* Validate the generated code, checking for consistency. *)
     (if !(flags.assert_valid) then

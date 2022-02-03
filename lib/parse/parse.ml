@@ -201,7 +201,8 @@ let pFun expr : expr t =
 (* parser for expressions *)
 let pExprNoApply : expr t =
   fix (fun expr ->
-      choice [pIf expr;
+      choice [(* parens expr; *)
+              pIf expr;
               pLet expr;
               pLetRec expr;
               pFun expr;
