@@ -101,18 +101,18 @@ let tests = "test suite for parsing" >::: [
     "let f = 10 in (f + 12)";
 
   (* (\* Complex Let Expression: assign function to variable *\) *)
-  (* parseTest "let_complex_fun" *)
-  (*   (Let ("f", *)
-  (*         Fun ("y", Op (Add, Var "y", Int 2)), *)
-  (*         Apply(Var "f", Int 3))) *)
-  (*   "let f = (fun y -> y + 2) in f 3"; *)
+  parseTest "let_complex_fun"
+    (Let ("f",
+          Fun ("y", Op (Add, Var "y", Int 2)),
+          Apply(Var "f", Int 3)))
+    "let f = (fun y -> y + 2) in f 3";
 
-  (* (\* Complex Let Expression: assign if to variable*\) *)
-  (* parseTest "let_complex_fun" *)
-  (*   (Let ("f", *)
-  (*         If (Bool true, Int 2, Int 3), *)
-  (*         Var "f")) *)
-  (*   "let f =(if true then 2 else 3)in f"; *)
+  (* Complex Let Expression: assign if to variable*)
+  parseTest "let_complex_fun"
+    (Let ("f",
+          If (Bool true, Int 2, Int 3),
+          Var "f"))
+    "let f = (if true then 2 else 3) in f";
 
   (* Let Rec Expression *)
   parseTest "let_rec_simple"

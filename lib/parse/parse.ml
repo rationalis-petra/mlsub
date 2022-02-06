@@ -199,24 +199,28 @@ let pFun expr : expr t =
     (fun e   -> Fun (var, e)))
 
 (* parser for expressions *)
-let pExprNoApply : expr t =
-  fix (fun expr ->
-      choice [(* parens expr; *)
-              pIf expr;
-              pLet expr;
-              pLetRec expr;
-              pFun expr;
-              pRecord expr;
-              pBinary expr;
-              pAccess;
-              pVar;])
 
-let pExpr =
+let pExpr : expr t =
+  pWhitespace *>
+  fix (fun expr ->
   let rec buildApply = function
     | [] -> Int 0
     | [x] -> x
-    | (x :: xs) -> Apply (x, buildApply xs) in
-  pWhitespace *> many1 (pExprNoApply <* pWhitespace) >>| buildApply
+    | (x :: xs) -> Apply (buildApply xs, x) in
+  let build_single_expr = 
+    choice [(* parens expr; *)
+        pIf expr;
+        pLet expr;
+        pLetRec expr;
+        pFun expr;
+        pRecord expr;
+        pBinary expr;
+        pAccess;
+        pVar] in
+  (many1 (build_single_expr <* pWhitespace)) >>|
+    (fun x -> buildApply (List.rev x)))
+
+    
 
 
 let pProgram =

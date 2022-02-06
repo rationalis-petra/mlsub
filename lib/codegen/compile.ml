@@ -5,6 +5,7 @@
 type flag_type = {assert_valid : bool ref}
 let flags =
   {assert_valid = ref true}
+let ptr_size = 8
 
 module AST = struct
   type pexpr = Parse.expr
@@ -54,15 +55,15 @@ exception CodeGenError of string
 let func_names = ref StrSet.empty
 let lambda_counter = ref 0
 
+(* Lambdas are converted to global functions! hence, we need to make sure that *)
+(* we generate unique names for them *)
 let gen_unique_name () = 
   let name = ref ("lambda" ^ string_of_int !lambda_counter) in
   while StrSet.mem !name !func_names do
     lambda_counter := !lambda_counter + 1;
     name := "lambda" ^ string_of_int !lambda_counter
   done;
-  (lambda_counter := !lambda_counter + 1;
-   func_names := StrSet.add !name !func_names;
-   !name)
+   !name
 
 
 (* Initialisation *)
@@ -73,8 +74,6 @@ let the_module = create_module context "MLSub"
 let () = set_target_triple "x86_64-pc-linux-gnu" the_module
 let builder = builder context
 
-(* Declare external functions: *)
-
 (* CODEGEN TYPES *)
 (* Prime type: cast to get other types *)
 let int_type = i64_type context
@@ -83,6 +82,38 @@ let int_ptr_type = pointer_type int_type
 (* Closures (lambdas) *)
 let closure_fn_type = function_type int_type [|int_type; int_ptr_type|]
 let closure_fn_ptr_type = pointer_type closure_fn_type
+
+(* Declare external functions: *)
+let global_decls = [|("printi", function_type int_type [|int_type|]);
+                     ("mk_record", function_type int_type [|int_type|]);
+                     ("set_field", function_type (void_type context)
+                                     [|int_type; int_type; int_type|]);
+                     ("mk_field_access", function_type int_type [|int_type|])|]
+let globals = 
+  Array.map (fun (name, ft) ->
+      declare_function name ft the_module)
+    global_decls
+
+let printi = Array.get globals 0
+let mk_record = Array.get globals 1
+let set_field = Array.get globals 2
+let mk_field_access = Array.get globals 3
+
+(* Associate string field-names with integers *)
+
+let get_field = 
+  let _field_map : (llvalue StrMap.t) ref = ref StrMap.empty in
+  let _counter = ref 0 in
+  (fun field ->
+    match StrMap.find_opt field !_field_map with
+    | Some v -> v
+    | None ->
+       let i = !_counter in
+       _counter := i + 1;
+       let lli = const_int int_type i in
+       _field_map := StrMap.add field lli !_field_map;
+       lli) 
+
 
 
 (* CODEGEN FUNCTIONS *)
@@ -102,11 +133,23 @@ let rec codegen_expr expr symtable =
       | Some v -> v
       | None -> raise (CodeGenError ("unknown variable name: " ^ name)))
   (* return a function which takes a hasmap and returns required field *)
-  | Access _ ->
-     (* let proto = codegen_proto (fresh_name (), ) *)
-     raise (CodeGenError "record field access not implemented")
+  | Access field ->
+     (* the mk_field_access function returns a closure which accesses a record *)
+     let field_ll = get_field field in
+     build_call mk_field_access [|field_ll|] "accesstmp" builder
 
-  | Record _ -> raise (CodeGenError "record creation not implemented")
+  | Record fields ->
+     (* Record generation is relatively easy; create the record then call the
+     requisite number of record insertions*) 
+     let num_fields = const_int int_type (List.length fields) in
+     let record = build_call mk_record [|num_fields|] "recordtmp" builder in
+     List.iter (fun (field, value) ->
+         let val_ll = codegen_expr value symtable in 
+         let key = get_field field in
+         ignore (build_call set_field [|record; key; val_ll|] "" builder)
+       ) fields;
+     record
+
   | Op (op, e1, e2) -> 
      let lhs = codegen_expr e1 symtable in
      let rhs = codegen_expr e2 symtable in
@@ -127,10 +170,10 @@ let rec codegen_expr expr symtable =
      body_val
 
 
-  (* For the moment, a 'function' will be a function pointer. Code generation
-     for a function will generate a new global function with *) 
-  (* TODO: convert from function to closure (funptr, environment) values *)
   | Fun (var, expr) ->
+     (* Most of the code here lives in the codegen_closure helper function. This
+      * simply generates a unique name for the global function which is used in
+      * the lambda *)
      let num = (!lambda_counter) in
      (lambda_counter := num + 1;
       let name = gen_unique_name () in
@@ -154,7 +197,7 @@ let rec codegen_expr expr symtable =
      let func = build_inttoptr func_int closure_fn_ptr_type "func" builder in
 
      (* 3 *)
-     let env_int = build_add callee (const_int int_type 1) "env_int" builder in
+     let env_int = build_add callee (const_int int_type ptr_size) "env_int" builder in
      let env_ptr = build_inttoptr env_int int_ptr_type "env_ptr" builder in
 
      (* 4 *)
@@ -195,8 +238,6 @@ let rec codegen_expr expr symtable =
      position_at_end merge_bb builder;
 
      phi
-
-(* | _ -> raise (CodeGenError "codegen_expr incomplete") *)
 
 
 
@@ -302,7 +343,7 @@ and codegen_closure name argname body symtable =
                          builder in
 
   Array.iteri (fun _idx _var ->
-      let idx = codegen_expr (Int (_idx + 1)) symtable in
+      let idx = codegen_expr (Int (_idx + ptr_size)) symtable in
       let var = codegen_expr (Var _var) symtable in
       let closure_idx = build_add closure_as_int idx
                           "closure_idx" builder in
@@ -331,7 +372,7 @@ and codegen_closure name argname body symtable =
       (Array.mapi (fun idx varname ->
            (varname,
             (* cast to int -> add appropriate idx -> cast back to ptr -> store *)
-            let ptridx = build_add ptrint (const_int int_type idx)
+            let ptridx = build_add ptrint (const_int int_type (idx * ptr_size))
                            "envintx" builder in
             let ptr = build_inttoptr ptridx int_ptr_type "ptr" builder in
             build_load ptr "envtmp" builder))
@@ -361,27 +402,8 @@ and codegen_closure name argname body symtable =
   ignore (build_store func_as_int closure_ptr builder);
   build_ptrtoint closure_ptr int_type "closure_as_int" builder
 
-  (* 
-  (* we need to do some pointer arithmetic: cast to int & back to pointer... yuk!*)
-  let cr_as_int = build_ptrtoint closure_record int_type "clrint1" builder in
-  let cr_as_int2 = build_add cr_as_int (const_int int_type 1) "clrint2" builder in
-  let cr_2 = build_inttoptr cr_as_int2 int_ptr_type "closure_record2" builder in
-  ignore (build_store env_as_int cr_2 builder);
 
-  (* cast to int and return *)
-  build_ptrtoint closure_record int_type "closure_as_int" builder
-  *)
-
-
-(* This *)
 let codegen_program expr =
-  (* Declare the existence of global functions for runtime linkage *)
-  let global_decls = [|("printi", function_type int_type [|int_type|]);
-                |] in
-  let globals = 
-    Array.map (fun (name, ft) ->
-        (name, declare_function name ft the_module))
-      global_decls in
 
   (* Generate a function handle for main *)
   let main_type =
@@ -395,16 +417,12 @@ let codegen_program expr =
   let bb = append_block context "entry" main_handle in
   position_at_end bb builder;
 
-  let symtable =
-    StrMap.of_seq (Array.to_seq globals) in
   (* Generate Main Body & insert into function block *)
-  let main_body = codegen_expr expr symtable in
+  let main_body = codegen_expr expr StrMap.empty in
 
 
   (* Call printi on the result *)
-  ignore (
-    let (_, printi) = Array.get globals 0 in
-    build_call printi [|main_body|] "prntout" builder );
+  ignore (build_call printi [|main_body|] "prntout" builder);
 
   (* "Cap" main function with return 0 *)
   let ret_val = const_int (i32_type context) 0 in

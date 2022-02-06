@@ -14,6 +14,7 @@ let rec compile in_filename out_filename format =
   let compile =
     file_to_str >>
     Parse.expr_of_string >>
+    (fun x -> print_endline (Parse.string_of_expr x); x) >>
     Codegen.expr_of_pexpr >>
     Codegen.codegen_program >>
            (fun m -> match format with
