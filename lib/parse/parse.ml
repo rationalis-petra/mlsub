@@ -65,32 +65,48 @@ let rec string_of_expr =
   | Apply (e1, e2) -> "Apply (" ^ soe e1 ^ ", " ^ soe e2 ^ ")"
 
 
+
+
+
+
+
+
+
+
+
+
+(* PARSER PRIMITIVES *)
+
 (* helper predicates *)
-let isAlphabetic = function
+let is_alpha = function
   | 'a' .. 'z' -> true
   | 'A' .. 'Z' -> true
   | _ -> false
 
-let isAlphaNumeric = function
+let is_alpha_num = function
   | 'a' .. 'z' -> true
   | 'A' .. 'Z' -> true
   | '0' .. '9' -> true
   | _ -> false
 
-let isNumeric = function
+let is_numeric = function
   | '0' .. '9' -> true
+  | _ -> false
+
+let is_whitespace = function
+  | '\t' | '\n' |' ' -> true
   | _ -> false
 
 (* Parsers which consume Whitespace *)
-let pWhitespace = take_while (function '\t' | '\n' |' ' -> true | _ -> false)
-let pWhitespace1 = take_while1 (function '\t' | '\n' |' ' -> true | _ -> false)
+let pWhitespace = take_while is_whitespace
+let pWhitespace1 = take_while1 is_whitespace
 
 
 (* define functions to work on parsers *)
 let token str = string str <* pWhitespace1
 let toTok p = p <* pWhitespace
 
-let parens p = char '(' *> p <* char ')'
+let parens p = char '(' *> pWhitespace *> p <* pWhitespace <* char ')'
 
 (* define the parsers themselves *)
 
@@ -98,8 +114,7 @@ let parens p = char '(' *> p <* char ')'
 (* 'partially-applied' constructor, i.e. parsing '+' would output a lambda *)
 (* function equivalent to 'fun e1 e2 -> Op (Add, e1, e2)' *)
 
-(* here, mkop/mkint serve as utility constructors because constructors cannot be *)
-(* partially-applied ಠ-ಠ *)
+
 let mkBinParser str opType =
   toTok (string str *> return (fun x y -> Op (opType, x, y)))
 
@@ -116,7 +131,7 @@ let pOr  = mkBinParser "or" Or
 (* [0-9]/true-false, then converts to an equivalent Int/Bool-expression, *)
 (* i.e. "45" becomes 'Int 45' and "true" becomes 'Bool true' *)  
 let pInteger =
-  let posInt = toTok (take_while1 isNumeric >>| int_of_string) in
+  let posInt = toTok (take_while1 is_numeric >>| int_of_string) in
   let negInt = char '-' *> posInt >>| (fun n -> -n) in 
   (posInt <|> negInt) >>| (fun n -> Int n)
   
@@ -134,9 +149,9 @@ let pVarStr : string t =
     | (x, y::_) when x = y -> true
     | (_, []) -> false
     | (x, _::xs) -> elem (x, xs) in
-  toTok (satisfy isAlphabetic >>=
+  toTok (satisfy is_alpha >>=
     (fun char ->
-      take_while (isAlphaNumeric) >>=
+      take_while (is_alpha_num) >>=
         (fun string ->
           let result = String.make 1 char ^ string in
           if elem (result, reserved_words) then
@@ -167,12 +182,14 @@ let pBinary expr : expr t =
   let mkBin e op =
     let rec go acc =
       (lift2 (fun f x -> f acc x) op e >>= go) <|> return acc in
-    e >>= fun init -> go init in
+    e >>= fun init ->
+    (* (print_endline ("parsed: " ^ string_of_expr init)); *)
+    go init in
 
-  (* Standard Operators: +, -, etc. according to standard precedence: * and / *)
-  (* bind tighter than + and - bind tighter than > and =* bind tighter than and *)
-  (* and or *)
-  let factor = parens expr <|> pInteger <|> pBool <|> pVar in
+  (* Standard Operators: +, -, etc. according to standard precedence: * and / 
+   * bind tighter than + and - bind tighter than > and = bind tighter than 'and' 
+   * and 'or' *)
+  let factor = choice [(parens expr); pInteger; pBool; pVar] in
   let term   = mkBin factor (pMul <|> pDiv) in
   let arith  = mkBin term (pAdd <|> pSub) in
   let logic  = mkBin arith (pGre <|> pEql) in
@@ -209,18 +226,18 @@ let pExpr : expr t =
     | (x :: xs) -> Apply (buildApply xs, x) in
   let build_single_expr = 
     choice [(* parens expr; *)
+        parens expr;
         pIf expr;
         pLet expr;
         pLetRec expr;
-        pFun expr;
         pRecord expr;
+        pFun expr;
         pBinary expr;
         pAccess;
         pVar] in
   (many1 (build_single_expr <* pWhitespace)) >>|
     (fun x -> buildApply (List.rev x)))
 
-    
 
 
 let pProgram =

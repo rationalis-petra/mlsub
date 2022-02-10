@@ -295,82 +295,161 @@ module CompactTypeScheme = struct
    For more information, see section 4: Type simplification tradeoffs of the
    paper "The Simple Essence of Algebraic Subtyping" *) 
 
-(*
-  let simplify_type (ctx : compact_type_scheme) : t_type = 
+  module VarUidSet = Set.Make(
+                         struct
+                           type t = variable_state
+                           let compare x y = Int.compare x.uid y.uid
+                         end)
+  module VarUidMap = Map.Make(
+                         struct
+                           type t = variable_state
+                           let compare x y = Int.compare x.uid y.uid
+                         end)
 
-    (* A set module which orders variable state by uid *)
-  module VarUidSet = Set.Make(module
-                                type t = variable_state
-                                let compare x y = Int.compare x.uid y.uid)
-
-    let all_vars = VarMap.to_seq
-                   cty.rec_vars
-
-      begin
-        VarStateSet.map
-          (fun tv ->
-                 all_vars := VarStateSet.add tv !all_vars;
-               ty.vars;
-               let new_occurances =
-                 SimpleSet.of_seq (Seq.append
-                                     (VarStateSet.to_seq tv) (List.to_seq
-                                                                tv.primitive)) in
-               (match Hashtbl.find_opt co_occurances (pol, tv) with
-                | Some os -> SimpleSet.inter os new_occurances
-                | None -> Hashtbl.add co_occurances (pol, tv) new_occurances);
-               (* if tv is recursive, it will have bounds, which we also need
-                * to process. *)
-               Option.map
-                 (fun b -> if not VarMap.mem tv rec_vars then
-                             let go_later () = 
-                               VarMap.rec_vars
-                             in go_later ();
-                           else ()
-
-                 )
-
-                 VarMap.find_opt tv ctx.rec_vars 
-          )
-          all_vars;
-        let rec_ = Option.map (fun mp -> SMap.map (fun x -> go x pol)) ty.rcd in
-        let fun_ = Option.map ((l, r) -> go l (inv pol), go r pol) ty.func in 
-        fun () ->
-        (* Note: original used flat_map *)
-        let new_vars = (VarStateSet.map (fun tv ->
-                            match Hashtbl.find_opt tv var_subst with
-                            | Some(Some(tv2)) -> tv2 :: []
-                            | Some(None) -> []
-                            | None -> tv :: []
-                          ) ty.vars) in
-        (* let new_vars = ty.vars *)
-        {vars = new_vars;
-         prims = ty.prims;
-         Option.map (SMap.map (fun x -> go x pol)) ty.rcd;
-         func = Option.map (fun (l, r) -> go l (inv pol), go r pol) ty.func}
-      end in
   
-  let gone = go cty.term Positive in
-  (* let () = print_endline "[occ] ${co_occurances}" *)
-  (* let () = print_endline "[rec] ${rec_vars}" *)
 
-  (* This stage of the simplification involves removing non-recursive variables
-   * that only occur in positive or negative positions *) 
-  VarStateSet.map
-    (fun v ->
-      if not (Hashtbl.mem var_subst v) then
-           (
-             (* print_endline("[v] ${Hashtbl.find co_occurancestrue v}
-  ${Hashtbl.find co_occurances false v}")  *)
-             if SimpleSet.for_all !(Hashtbl.find co_occurances (pol, v)) then
-               begin
-                 (* print_endline("[U] $w := $v") *)
-               end
-             else ()
-           )
-         else ()
-    )
-    !all_vars
- *)
+  let simplify_type (cty : compact_type_scheme) : compact_type_scheme = 
+    let all_vars = ref (VarUidSet.of_seq
+                          (Seq.map (fun (a, _) -> a) (VarMap.to_seq cty.rec_vars
+                     ))) in 
+    let rec_vars : (unit -> CompactType.t) VarUidMap.t ref = ref VarUidMap.empty in
+    let co_occurences : (SimpleSet.t ref) PolVarMap.t ref = ref PolVarMap.empty
+    in
+    
+    (* Filled up in analysis phase and used in reconstruction phase *)
+    let var_subst : variable_state option VarMap.t ref = ref VarMap.empty in
+
+    (* Perform the analysis, and return a lazy reconstruction *)
+    let rec go (ty : CompactType.t) (pol : polarity) : unit -> CompactType.t = 
+      VarStateSet.iter (fun tv ->
+          all_vars := VarUidSet.add tv !all_vars;
+          let new_occs = SimpleSet.of_seq(
+                             Seq.append
+                               (Seq.map
+                                  (fun var -> Variable var)
+                                  (VarSet.to_seq ty.vars))
+                               (Seq.map
+                                (fun prim -> Primitive prim)
+                                (PrimSet.to_seq ty.prims))) in
+          (match PolVarMap.find_opt (tv, pol) !co_occurences with
+           | Some os ->
+              os := SimpleSet.inter new_occs !os
+           | None ->
+              co_occurences := PolVarMap.add (tv, pol) (ref new_occs) !co_occurences);
+          match VarMap.find_opt tv cty.rec_vars with
+          | Some b -> if not (VarUidMap.mem tv !rec_vars) then
+          (* TODO: Check if Lazy keyword impacts semantics...*)
+                        (*Potential bug here*)
+                        let rec go_later : unit -> CompactType.t =
+                          (fun () ->
+                            rec_vars :=
+                              VarUidMap.add tv (fun () -> go_later ()) !rec_vars;
+                            go b pol ()) in
+                        rec_vars :=
+                          VarUidMap.add tv (fun () -> go_later ()) !rec_vars;
+                        (* ignore (go_later ()); *)
+                        ()
+                      else ()
+          | None -> ()
+
+        )
+        ty.vars;
+
+      let rcd_ = Option.map (SMap.map (fun x -> go x pol)) ty.rcd in
+      let func_ = Option.map (fun (l, r) -> (go l (inv pol), go r pol)) ty.func in
+      (* Return value of go *)
+      (fun () ->
+        let new_vars = List.flatten (List.map
+                                       (fun tv ->
+                                         match VarMap.find_opt tv ! var_subst with 
+                                         | Some(Some(tv2)) -> tv2 :: []
+                                         | Some(None) -> []
+                                         | None -> [])
+                                       (List.of_seq (VarStateSet.to_seq ty.vars))) in
+        {vars = VarStateSet.of_list (new_vars);
+         prims = ty.prims;
+         rcd = Option.map (SMap.map (fun x -> x ())) rcd_;
+         func = Option.map (fun (l, r) -> (l (), r ())) func_
+      }) in
+    
+    let gone = go cty.term Data.Positive in
+    (* print_endline ("occ: ": co_occurences); *)
+    (* print_endline ("rec: ": rec_vars); *)
+
+    VarUidSet.iter
+      (fun v0 ->
+        if VarUidMap.mem v0 !rec_vars then
+          match (PolVarMap.find_opt (v0, Positive) !co_occurences,
+                 PolVarMap.find_opt (v0, Negative) !co_occurences) with
+          | (Some _, None) | (None, Some _) ->
+             (* println "[!]" $v0; *)
+             var_subst := VarMap.add v0 None !var_subst;
+          | occ -> assert (occ != (None, None))
+        else
+          ())
+    !all_vars;
+
+    let pols = [ Positive; Negative] in
+    VarUidSet.iter
+      (fun v ->
+        if VarMap.mem v !var_subst then
+          (* println ... *)
+          (List.iter
+            (fun pol ->
+              (* TODO: potential source of bugs in translation here... *)
+              Option.iter (SimpleSet.iter
+                (fun x -> match x with
+                 | Variable w ->
+                    (if (not (w = v)) &&
+                          (not (VarMap.mem w !var_subst)) &&
+                            ((VarUidMap.mem v !rec_vars) = (VarUidMap.mem w !rec_vars))
+                     then 
+                       (* print_endline  $w $get co_occurences (pol, w) *)
+                       if (match (PolVarMap.find_opt (w, pol) !co_occurences)
+                           with
+                           | None -> false
+                           | Some s -> SimpleSet.mem (Variable v) !s)
+                       then 
+                         var_subst := VarMap.add w (Some v) !var_subst;
+                     (match VarUidMap.find_opt w !rec_vars with
+                      | Some b_w ->
+                         assert(not (PolVarMap.mem (w, inv pol) !co_occurences));
+                         rec_vars := VarUidMap.remove w !rec_vars;
+                         let b_v = VarUidMap.find v !rec_vars in
+                         rec_vars := VarUidMap.add v
+                                       (fun () ->
+                                         CompactType.merge pol (b_v ()) (b_w ()))
+                                       !rec_vars
+                      | None ->
+                         let w_co_ocss = PolVarMap.find (w, inv pol)
+                                           !co_occurences in
+                         ignore
+                           (SimpleSet.filter (fun t ->
+                                t = (Variable v) ||
+                                  SimpleSet.mem t !w_co_ocss)
+                              !(PolVarMap.find (v, inv pol) !co_occurences))))
+                           
+                 | Primitive atom ->
+                    (match Option.map (fun x -> SimpleSet.mem (Primitive atom) !x)
+                             (PolVarMap.find_opt (v, inv pol) !co_occurences) with 
+                       
+                     | Some true ->
+                        var_subst := VarMap.add v None !var_subst;
+                     | _ -> ())
+                 | _ -> ()))
+             (Option.map (!) (PolVarMap.find_opt (v, pol) !co_occurences)))
+            pols)
+        else ()
+      )
+      !all_vars;
+    {term = gone ();
+     rec_vars = VarMap.map (fun f -> f ())
+                  (VarMap.of_seq (VarUidMap.to_seq !rec_vars))}
+
+
+
+
+ 
 
   type compact_type_or_variable =
     | CompactType of CompactType.t

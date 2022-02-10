@@ -9,8 +9,8 @@ int64_t printi(int64_t i) {
   printf("%ld\n", i);
   return 0;
 }
-// Hashmap helpers
 
+// Hashmap helpers
 struct entry {
   int64_t key;
   int64_t val;

@@ -265,7 +265,6 @@ module CompPolVar : CompPolVarT
     | n -> n
   end
 
-module SimpleSet = Set.Make(CompSimple)
 
 module CSet = Set.Make(
                   struct
@@ -278,8 +277,12 @@ module CSet = Set.Make(
                         CompSimple.compare t12 t22
                   end)
 
+module SimpleSet = Set.Make(CompSimple)
 module VarStateSet = Set.Make(CompVarSt)
 module PrimSet = Set.Make(CompPrimitive)
+module PolVarSet = Set.Make(CompPolVar)
+
+module PolVarMap = Map.Make(CompPolVar)
 
 
 

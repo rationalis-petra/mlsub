@@ -1,3 +1,4 @@
 
-let f = {y = 3, x = 4} in
-#y f
+let f = fun rcd -> 10 + (#y rcd) in
+let rcd = {x = 2, y = 10} in
+f rcd

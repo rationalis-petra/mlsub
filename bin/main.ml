@@ -10,11 +10,18 @@ exception Err of string
 
 (* Use the Command Module for CLI parsing *)
 
-let rec compile in_filename out_filename format =
+let rec compile mode in_filename out_filename format =
+  let parse = 
+    file_to_str >>
+    (* eval >> *)
+    (* (fun x -> print_endline (string_of_int x)) *)
+    Parse.expr_of_string >>
+    (fun x -> print_endline (Parse.string_of_expr x))
+  in
+  (* let typecheck =  *)
   let compile =
     file_to_str >>
     Parse.expr_of_string >>
-    (fun x -> print_endline (Parse.string_of_expr x); x) >>
     Codegen.expr_of_pexpr >>
     Codegen.codegen_program >>
            (fun m -> match format with
@@ -23,7 +30,10 @@ let rec compile in_filename out_filename format =
                      | "ir" ->
                         str_to_file (Llvm.string_of_llmodule m) out_filename
                      | _ -> raise (Err ("unrecognized output format: " ^ format))) in
-  compile in_filename
+  match mode with
+  | "parse" -> parse in_filename
+  | "compile" -> compile in_filename
+  | _ -> print_endline ("err: invalid argument to mode: " ^ mode)
 
 and file_to_str filename = 
   let file = open_in filename in
@@ -52,7 +62,12 @@ let out_format =
             "Bitcode, Assembly or Binary" in
   Arg.(value & opt string "bitcode" & info ["f"; "format"] ~docv:"FORMAT" ~doc)
 
-let compile_t = Term.(const compile $ in_filename $ out_filename $ out_format)
+let mode = 
+  let doc = "The desired action to perform: parse, typecheck or compile " ^
+            "Default is compile" in
+  Arg.(value & opt string "compile" & info ["m"; "mode"] ~docv:"MODE" ~doc)
+
+let compile_t = Term.(const compile $ mode $ in_filename $ out_filename $ out_format)
 
 
 let info =
