@@ -121,16 +121,31 @@ module PolymorphicTypeScheme
 end
 
 
-let rec string_of_type : simple_type -> string = 
-  let string_of_primitive = function
-    | PrimInt -> "PrimInt"
-    | PrimBool -> "PrimBool"
-  in function
+let string_of_primitive = function
+  | PrimInt -> "PrimInt"
+  | PrimBool -> "PrimBool"
+
+let rec string_of_simple_type : simple_type -> string = function
   | Primitive prim -> "Primitive " ^ string_of_primitive prim
   | Variable _ -> "Variable <state not to string>"
-  | Function (arg, res) -> "Function (" ^ string_of_type arg ^ ", " ^
-                          string_of_type res ^ ")"
+  | Function (arg, res) -> "Function (" ^ string_of_simple_type arg ^ ", " ^
+                          string_of_simple_type res ^ ")"
   | Record _ -> "<record to string incomplete>"
+
+let rec string_of_type : mlsub_type -> string = function
+  | Top -> "⊤"
+  | Bottom -> "⊥"
+  | Union (t1, t2) -> (string_of_type t1) ^ "⊔" ^ (string_of_type t2)
+  | Intersection (t1, t2) -> (string_of_type t1) ^ "⊓" ^ (string_of_type t2)
+  | FunctionType (t1, t2) ->  (string_of_type t1) ^ "→" ^ (string_of_type t2)
+  | RecordType lst -> 
+     "{" ^ (List.fold_left
+              (fun str (lab, t) ->
+                lab ^ ":" ^ (string_of_type t) ^ "," ^ str ) "" lst) ^
+       "}"
+  | RecursiveType (var, t2) -> "μ" ^ var ^ "." ^ (string_of_type t2)
+  | VariableType s -> s
+  | PrimitiveType p -> string_of_primitive p
 
 
 (* Use a functor to generate a set that stores the type simple_type *)

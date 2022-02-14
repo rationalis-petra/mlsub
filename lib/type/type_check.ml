@@ -73,7 +73,7 @@ let rec constrain (lhs: simple_type) (rhs: simple_type) =
               | Some (_, type0) -> constrain type0 type1
               | None -> err ("missing field: " ^ name1
                              ^ " when subtyping "
-                             ^ string_of_type lhs)) fs1 in
+                             ^ string_of_simple_type lhs)) fs1 in
         ()
 
      (* The tricky bits come when there's variables on the left
@@ -106,8 +106,8 @@ let rec constrain (lhs: simple_type) (rhs: simple_type) =
      | (lhs, Variable rhv) ->
         let lhs' = extrude lhs Positive rhv.level (ref PolCache.empty) in
         constrain lhs' rhs
-     | _ -> err ("cannot constrain " ^ (string_of_type lhs)
-                 ^ " <: " ^ (string_of_type rhs)))
+     | _ -> err ("cannot constrain " ^ (string_of_simple_type lhs)
+                 ^ " <: " ^ (string_of_simple_type rhs)))
 
 
 
@@ -259,4 +259,4 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
           ctx)
        lvl
 
-let infer_type raw_expr = typecheck raw_expr Context.empty 0
+let infer_simple_type raw_expr = typecheck raw_expr Context.empty 0

@@ -14,7 +14,11 @@ type mlsub_type
 
 and primitive_type = PrimInt | PrimBool
 
-let infer_type = Type_check.infer_type
+let infer_type expr =
+  let simple_t = Type_check.typecheck expr Type_check.Context.empty 0 in
+  let compact_t = Type_simplify.CompactTypeScheme.compact_type simple_t in
+  let simplified_t = Type_simplify.CompactTypeScheme.simplify_type compact_t in
+  Type_simplify.CompactTypeScheme.coalesce_compact_type simplified_t
 
 let string_of_type = Data.string_of_type
 

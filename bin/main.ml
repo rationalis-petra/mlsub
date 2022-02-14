@@ -13,11 +13,14 @@ exception Err of string
 let rec compile mode in_filename out_filename format =
   let parse = 
     file_to_str >>
-    (* eval >> *)
-    (* (fun x -> print_endline (string_of_int x)) *)
     Parse.expr_of_string >>
     (fun x -> print_endline (Parse.string_of_expr x))
   in
+  let type_progn = 
+    file_to_str >>
+    Parse.expr_of_string >>
+    Type.infer_type >>
+    (fun t -> print_endline (Type.string_of_type t)) in
   (* let typecheck =  *)
   let compile =
     file_to_str >>
@@ -32,6 +35,7 @@ let rec compile mode in_filename out_filename format =
                      | _ -> raise (Err ("unrecognized output format: " ^ format))) in
   match mode with
   | "parse" -> parse in_filename
+  | "type" -> type_progn in_filename
   | "compile" -> compile in_filename
   | _ -> print_endline ("err: invalid argument to mode: " ^ mode)
 

@@ -76,6 +76,7 @@ let builder = builder context
 
 (* CODEGEN TYPES *)
 (* Prime type: cast to get other types *)
+let bool_type = i1_type context
 let int_type = i64_type context
 let int_ptr_type = pointer_type int_type
 
@@ -153,15 +154,26 @@ let rec codegen_expr expr symtable =
   | Op (op, e1, e2) -> 
      let lhs = codegen_expr e1 symtable in
      let rhs = codegen_expr e2 symtable in
+     (* For boolean operations, we must first cast int -> bool, then bool ->
+      * int *)
+     let build_bop build_fn lhs rhs name builder = 
+       let lhs_as_bool = build_bitcast lhs bool_type "blhstmp" builder in
+       let rhs_as_bool = build_bitcast rhs bool_type "brhstmp" builder in
+       let out = build_fn lhs_as_bool rhs_as_bool name builder in
+       build_bitcast out int_type "outtmp" builder in
+     (* For comparison operations, we must cast the result (bool) to int  *)
+     let build_intcmp cmptype lhs rhs name builder = 
+       let out = build_icmp cmptype lhs rhs name builder in
+       build_bitcast out int_type "outtmp" builder in
      (match op with
       | Add -> build_add  lhs rhs "addtmp" builder
       | Sub -> build_sub  lhs rhs "subtmp" builder
       | Mul -> build_mul  lhs rhs "multmp" builder
       | Div -> build_sdiv lhs rhs "divtmp" builder
-      | Gre -> build_icmp Icmp.Sge lhs rhs "gretmp" builder
-      | Eql -> build_icmp Icmp.Eq lhs rhs "eqltmp" builder
-      | And -> build_and  lhs rhs "andtmp" builder
-      | Or  -> build_or   lhs rhs "ortmp"  builder)
+      | Gre -> build_intcmp Icmp.Sge lhs rhs "gretmp" builder
+      | Eql -> build_intcmp Icmp.Eq lhs rhs "eqltmp" builder
+      | And -> build_bop build_and lhs rhs "andtmp" builder
+      | Or  -> build_bop build_or lhs rhs "ortmp"  builder)
 
   | Let (var, body, var_expr) ->
      let new_symtable = StrMap.add var (codegen_expr var_expr symtable)
@@ -210,6 +222,8 @@ let rec codegen_expr expr symtable =
 
   | If (cond, e1, e2) ->
      let cond_code = codegen_expr cond symtable in
+     (* The output is in the form of an int64; we need to cast to bool *)
+     let cond_bool = build_bitcast cond_code bool_type "condtmp" builder in 
      let start_bb = insertion_block builder in
      let the_function = block_parent start_bb in
      let then_bb = append_block context "then" the_function in
@@ -228,7 +242,7 @@ let rec codegen_expr expr symtable =
      let phi = build_phi incoming "iftmp" builder in
      (* return to the start block to add conditional branch *)
      position_at_end start_bb builder;
-     ignore (build_cond_br cond_code then_bb else_bb builder);
+     ignore (build_cond_br cond_bool then_bb else_bb builder);
      (* Set a unconditional branch at the end of the 'then' block and the
       * 'else' block to the 'merge' block. *)
      position_at_end new_then_bb builder; ignore (build_br merge_bb builder);

@@ -1,4 +1,2 @@
 
-let f = fun rcd -> 10 + (#y rcd) in
-let rcd = {x = 2, y = 10} in
-f rcd
+if true and (2 > 3) then 10 else 5

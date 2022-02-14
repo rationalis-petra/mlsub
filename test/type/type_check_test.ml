@@ -3,7 +3,7 @@ open Type.Internal.Check
 open OUnit2
 
 let typeTest name expr simple_type = 
-  name >:: (fun _ -> assert_equal simple_type (infer_type expr))
+  name >:: (fun _ -> assert_equal simple_type (infer_simple_type expr))
 
 let typeTestCtxt name expr simple_type ctx =
   name >:: (fun _ -> assert_equal simple_type (typecheck expr ctx 0))
