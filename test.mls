@@ -1,2 +1,1 @@
-
-if true and (2 > 3) then 10 else 5
+fun x -> x

@@ -2,6 +2,16 @@ open Type.Internal.Data
 open Type.Internal.Check
 open OUnit2
 
+let typePrint name expr = 
+  name >:: (fun _ ->
+    print_endline (string_of_simple_type (infer_simple_type expr));
+    assert_bool "type_print" true)
+
+let typePrintCtx name expr ctx = 
+  name >:: (fun _ ->
+    print_endline (string_of_simple_type (typecheck expr ctx 0));
+    assert_bool "type_print" true)
+
 let typeTest name expr simple_type = 
   name >:: (fun _ -> assert_equal simple_type (infer_simple_type expr))
 
@@ -12,9 +22,13 @@ let typeTestCtxtLvl name expr simple_type ctx lvl =
   name >:: (fun _ -> assert_equal simple_type (typecheck expr ctx lvl))
 
 let tests = "test suite for typing" >::: [
-  (* Boolean Literals *)
+  (* Booleans *)
   typeTest "bool_true"  (Bool true)  (Primitive PrimBool);
   typeTest "bool_false" (Bool false) (Primitive PrimBool);
+  typePrintCtx "bool_fn"
+    (Apply (Var "not", Bool false))
+    (Context.singleton "not"
+       (SimpleTypeScheme (Function (Primitive PrimBool, Primitive PrimBool))));
 
   (* Integer Literals *)
   typeTest "integer1"   (Int 0)      (Primitive PrimInt);
@@ -23,9 +37,8 @@ let tests = "test suite for typing" >::: [
 
   (* Variables in a Dummy Context *) 
   (let context = (Context.empty
-                  |> Context.add "x" (mkTScheme
-                                        (module SimpleTypeScheme)
-                                        (Primitive PrimInt))) in
+                  |> Context.add "x" (SimpleTypeScheme (Primitive PrimInt)))
+                  in
   typeTestCtxt "variable" (Var "x") (Primitive PrimInt) context);
 
   (* Operators with Primitives *)
@@ -37,6 +50,10 @@ let tests = "test suite for typing" >::: [
     (Primitive PrimBool);
   typeTest "op_and_simple"
     (Op (And, Bool true, Bool false))
-    (Primitive PrimBool)]
+    (Primitive PrimBool);
+
+  (* typePrint "func_polymorphic_simple" *)
+  (*   (Fun ("x", Var "x")) *)
+    ]
 
 let _ = run_test_tt_main tests

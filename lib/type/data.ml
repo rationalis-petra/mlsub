@@ -57,80 +57,33 @@ let fresh_var l =
   end
 
 
-(* TODO: the instantiate definition for typeschemes never use their level *)
-(* argument... this seems fishy and deserves investigation *)
-module type TypeScheme = sig
-  type t
-  val instantiate : t -> int -> simple_type 
-  val level: t -> int
-end
-
-module SimpleTypeScheme
-  = struct
-  type t = simple_type
-  let instantiate s _ = s
-  let rec level s =
-    match s with
-    | Function (l, r) -> max (level l) (level r)
-    | Record xs ->
-       List.fold_right (fun x y -> max (level (snd x)) y) xs 0 
-    | Variable vs -> vs.level
-    | Primitive _ -> 0
-end
-
-module PolymorphicTypeScheme
-  = struct
-  type t = {level: int;
-            body: simple_type}
-  let rec instantiate s lvl = freshen_above s.level s.body lvl 
-  and freshen_above lim ty lvl = 
-    let freshened : (simple_type, simple_type) Hashtbl.t = Hashtbl.create 10 in
-    let rec freshen (ty : simple_type) : simple_type =
-      if SimpleTypeScheme.level ty <= lim then
-        ty
-      else
-        match ty with
-            | Variable tv ->
-               begin
-               match Hashtbl.find_opt freshened (freshen_above lim ty lvl) with
-               | Some x -> x
-               | None ->
-                  let vr = Variable (fresh_var lvl) in
-                  match vr with
-                  | Variable v ->
-                     begin
-                       Hashtbl.add freshened ty vr;
-                       v.lower_bounds <- List.rev
-                                           (List.map freshen
-                                              (List.rev (tv.lower_bounds)));
-                       v.upper_bounds <- List.rev
-                                           (List.map freshen
-                                              (List.rev (tv.upper_bounds)));
-                       vr
-                     end
-                  | _ -> raise (TypecheckError
-                                  "err in freshen: fresh_var didn't return variable") 
-               end
-            | Function (l, r) -> Function (freshen l, freshen r)
-            | Record fs -> Record (List.map (fun (v, t) -> (v, freshen t)) fs)
-            | Primitive _ -> ty
-    in
-    freshen ty
-  let level s = s.level
-  let mkpt l b : t = {level = l; body = b}
-end
-
-
 let string_of_primitive = function
   | PrimInt -> "PrimInt"
   | PrimBool -> "PrimBool"
 
 let rec string_of_simple_type : simple_type -> string = function
   | Primitive prim -> "Primitive " ^ string_of_primitive prim
-  | Variable _ -> "Variable <state not to string>"
+  | Variable {lower_bounds; upper_bounds; level; uid} ->
+     let stlist_to_string stlist = 
+       let rec tostr_helper = function 
+       | [] -> "]"
+       | st :: [] -> (string_of_simple_type st) ^ "]"
+       | st :: xs -> (string_of_simple_type st) ^ (tostr_helper xs) in
+       "[" ^ (tostr_helper stlist) in
+     "{lower_bounds = " ^ (stlist_to_string lower_bounds) ^ ";\n" ^
+       "upper_bounds = " ^ (stlist_to_string upper_bounds) ^ ";\n" ^
+         "level = " ^ (string_of_int level) ^ ";\n" ^
+           "uid = " ^ (string_of_int uid) ^ "}"
   | Function (arg, res) -> "Function (" ^ string_of_simple_type arg ^ ", " ^
                           string_of_simple_type res ^ ")"
-  | Record _ -> "<record to string incomplete>"
+  | Record fields ->
+     "{" ^ (List.fold_left
+              (fun str (f,t) ->
+                f ^ " : " ^ string_of_simple_type t ^ ";" ^ str
+              )
+              ""
+              fields)
+     ^ "}"
 
 let rec string_of_type : mlsub_type -> string = function
   | Top -> "⊤"

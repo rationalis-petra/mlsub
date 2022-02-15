@@ -10,19 +10,64 @@ module Context = Map.Make(String)
 
 (* Instances of a type scheme *)
 
-module type TScheme = sig
-  module TypeScheme : TypeScheme
-  val this : TypeScheme.t
-  end
 
-let mkTScheme (type a) (module M : TypeScheme with type t = a)
-      (x : a) : (module TScheme) = 
-  (module struct
-     module TypeScheme = M
-     let this = x
-   end : TScheme) 
+type type_scheme = 
+  | SimpleTypeScheme of simple_type
+  | PolymorphicTypeScheme of int * simple_type
 
-type ctx = (module TScheme) Context.t
+let rec instantiate tscheme lvl =
+  match tscheme with
+  | SimpleTypeScheme s -> s
+  | PolymorphicTypeScheme (level, body) ->
+     freshen_above level body lvl
+
+and freshen_above lim ty lvl = 
+  let freshened : (simple_type, simple_type) Hashtbl.t = Hashtbl.create 10 in
+  let rec freshen (ty : simple_type) : simple_type =
+    if level (SimpleTypeScheme ty) <= lim then
+      ty
+    else
+      match ty with
+      | Variable tv ->
+         begin
+           match Hashtbl.find_opt freshened (freshen_above lim ty lvl) with
+           | Some x -> x
+           | None ->
+              let vr = Variable (fresh_var lvl) in
+              match vr with
+              | Variable v ->
+                 begin
+                   Hashtbl.add freshened ty vr;
+                   v.lower_bounds <- List.rev
+                                       (List.map freshen
+                                          (List.rev (tv.lower_bounds)));
+                   v.upper_bounds <- List.rev
+                                       (List.map freshen
+                                          (List.rev (tv.upper_bounds)));
+                   vr
+                 end
+              | _ -> raise (TypecheckError
+                              "err in freshen: fresh_var didn't return variable") 
+         end
+      | Function (l, r) -> Function (freshen l, freshen r)
+      | Record fs -> Record (List.map (fun (v, t) -> (v, freshen t)) fs)
+      | Primitive _ -> ty
+  in
+    freshen ty
+
+and level tscheme = 
+  let rec simple_level = function
+    | Function (l, r) -> max (simple_level l) (simple_level r)
+    | Record xs ->
+       List.fold_right (fun x y -> max (simple_level (snd x)) y) xs 0 
+    | Variable vs -> vs.level
+    | Primitive _ -> 0 in
+  match tscheme with
+  | SimpleTypeScheme s -> simple_level s
+  | PolymorphicTypeScheme (level, _) -> level
+
+
+type ctx = type_scheme Context.t
 
 let err msg = raise (TypecheckError msg)
 
@@ -39,7 +84,6 @@ let swap f a b = f b a
 (* TODO: rather than have cf_cache be a global variable, allow at the initial
    invocation of typecheck for a new constrain-function/cache to be used
    to prevent excess memory usage, particularly when testing... *)
-let cf_cache = ref CSet.empty
 
 module PolCache = Map.Make(CompPolVar)
 
@@ -47,67 +91,76 @@ module PolCache = Map.Make(CompPolVar)
      type variable_state contained within a type to make the lhs a subtype of
      the rhs, or return an error if this is not possible *)
 let rec constrain (lhs: simple_type) (rhs: simple_type) = 
-  if CSet.mem (lhs, rhs) (!cf_cache) then
-    ()
-  else
-    (* TODO: future optimization - only add store type variables to the cache*)
-    (cf_cache := CSet.add (lhs, rhs) (!cf_cache);
-     match (lhs, rhs) with
-     | (Primitive n0, Primitive n1) when n0 = n1 -> ()
+  let cf_cache = ref CSet.empty in
+  let rec cconstrain (lhs: simple_type) (rhs: simple_type) = 
+    let cached l r =
+      match (l, r) with
+      | (Variable _, _) | (_, Variable _) ->
+         if (CSet.mem (l, r) !cf_cache) then
+           true
+         else
+           (cf_cache := CSet.add (l, r) !cf_cache;
+            false)
+      | (_, _) -> false in
+    if (lhs == rhs) || (cached lhs rhs) then () 
+    else
+      match (lhs, rhs) with
+      | (Primitive n0, Primitive n1) when n0 = n1 -> ()
 
-     (* Function types are constrained according to the usual
+      (* Function types are cconstrained according to the usual
             rules of contravariance and covariance*)
-     | (Function (l0, r0), Function (l1, r1)) ->
-        constrain l1 l0;
-        constrain r0 r1
+      | (Function (l0, r0), Function (l1, r1)) ->
+         cconstrain l1 l0;
+         cconstrain r0 r1
 
-     (* If we are constraining one record to be a subtype of
+      (* If we are cconstraining one record to be a subtype of
             another, then we require
             1. That the first record have all the fields of the second
-            2. That the second's fields are constrained to be a
+            2. That the second's fields are cconstrained to be a
                subtype of the firsts' *)
-     | (Record fs0, Record fs1) ->
-        let _ = 
-          List.map (fun (name1, type1) ->
-              match List.find_opt (fun (name0, _) -> name0 = name1) fs0 with
-              | Some (_, type0) -> constrain type0 type1
-              | None -> err ("missing field: " ^ name1
-                             ^ " when subtyping "
-                             ^ string_of_simple_type lhs)) fs1 in
-        ()
+      | (Record fs0, Record fs1) ->
+         let _ = 
+           List.map (fun (name1, type1) ->
+               match List.find_opt (fun (name0, _) -> name0 = name1) fs0 with
+               | Some (_, type0) -> cconstrain type0 type1
+               | None -> err ("missing field: " ^ name1
+                              ^ " when subtyping "
+                              ^ string_of_simple_type lhs)) fs1 in
+         ()
 
-     (* The tricky bits come when there's variables on the left
+      (* The tricky bits come when there's variables on the left
             or right, as this means that we have to carefully
-            constrain them. This involves checking the level. If the level
+            cconstrain them. This involves checking the level. If the level
             comparison succeeds (TODO: what does this mean?) Then
             + First, we add the corresponding
-              constraint to the upper/lower bounds, respectively 
+              cconstraint to the upper/lower bounds, respectively 
             + Second, we iterate over the existing opposite bounds in
               order to make sure that they become consistent with the
               new bound (TODO: more carefully investigate why...) 
             Otherwise, we will make use of the extrude funcion... TODO *)
-     | (Variable lhs, _) when lhs.level >= SimpleTypeScheme.level rhs ->
-        lhs.upper_bounds <- rhs :: lhs.upper_bounds;
-        let _ = 
-          List.map (swap constrain rhs) lhs.lower_bounds in
-        ()
-     | (_, Variable rhs) when SimpleTypeScheme.level lhs <= rhs.level ->
-        rhs.lower_bounds <- lhs :: rhs.lower_bounds;
-        let _ =
-          List.map (constrain lhs) rhs.upper_bounds in
-        ()
+      | (Variable lhs, _) when lhs.level >= level (SimpleTypeScheme rhs) ->
+         lhs.upper_bounds <- rhs :: lhs.upper_bounds;
+         let _ = 
+           List.map (swap cconstrain rhs) lhs.lower_bounds in
+         ()
+      | (_, Variable rhs) when level (SimpleTypeScheme lhs) <= rhs.level ->
+         rhs.lower_bounds <- lhs :: rhs.lower_bounds;
+         let _ =
+           List.map (cconstrain lhs) rhs.upper_bounds in
+         ()
 
-     | (Variable lhv, rhs) ->
-        (* extrude returns a copy of the problematic (level-violating) type
+      | (Variable lhv, rhs) ->
+         (* extrude returns a copy of the problematic (level-violating) type
              up to it's type variables of the wrong level, except this copy has
              been modified so it is a the right level *)
-        let rhs' = extrude rhs Negative (lhv.level) (ref PolCache.empty) in
-        constrain lhs rhs'
-     | (lhs, Variable rhv) ->
-        let lhs' = extrude lhs Positive rhv.level (ref PolCache.empty) in
-        constrain lhs' rhs
-     | _ -> err ("cannot constrain " ^ (string_of_simple_type lhs)
-                 ^ " <: " ^ (string_of_simple_type rhs)))
+         let rhs' = extrude rhs Negative (lhv.level) (ref PolCache.empty) in
+         cconstrain lhs rhs'
+      | (lhs, Variable rhv) ->
+         let lhs' = extrude lhs Positive rhv.level (ref PolCache.empty) in
+         cconstrain lhs' rhs
+      | _ -> err ("cannot cconstrain " ^ (string_of_simple_type lhs)
+                  ^ " <: " ^ (string_of_simple_type rhs))
+  in cconstrain lhs rhs
 
 
 
@@ -115,7 +168,7 @@ let rec constrain (lhs: simple_type) (rhs: simple_type) =
 (* Extrude : make a copy up to type variables, with level correction *) 
 and extrude (ty : simple_type) (pol : polarity) (lvl : int)
           (cache : simple_type PolCache.t ref) : simple_type =
-  if (SimpleTypeScheme.level ty <= lvl) then
+  if (level (SimpleTypeScheme ty) <= lvl) then
     ty
   else
     match ty with
@@ -166,8 +219,9 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
 
   (* Type-checking a name relatively easy - just lookup that name in the context *)
   | P.Var name ->
-     let open (val (Context.find name ctx) : TScheme) in
-     TypeScheme.instantiate this lvl
+     instantiate (Context.find name ctx) lvl
+     (* let open (val (Context.find name ctx) : TScheme) in *)
+     (* TypeScheme.instantiate this lvl *)
 
   (* Type-checking a record is also easy - just typecheck all the subexpressions *)
   | P.Record xs ->
@@ -178,16 +232,10 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
      new context *) 
   | P.Fun (name, body) -> 
      let param_type = Variable (fresh_var lvl) in
-     Function (param_type,
-               typecheck
-                 body
-                 (Context.add
-                    name
-                    (mkTScheme
-                       (module SimpleTypeScheme)
-                       param_type)
-                    ctx)
-                 lvl) 
+     let body_type = typecheck body
+                       (Context.add name (SimpleTypeScheme param_type) ctx)
+                       lvl  in
+     Function (param_type, body_type)
 
   (* A record access is just a function, and so type-checking is very similar:
      with the prime difference being that we know the input type must be a
@@ -201,7 +249,9 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
      result type. Then, return the return type *) 
   | P.Apply (func, arg) ->
      let ret_type = Variable (fresh_var lvl) in
-     constrain (typecheck func ctx lvl) (Function (typecheck arg ctx lvl, ret_type));
+     let func_type = typecheck func ctx lvl in
+     let arg_type = typecheck arg ctx lvl in
+     constrain func_type (Function (arg_type, ret_type));
      ret_type
 
   (* To typecheck an operator is much the same as a function application:
@@ -243,9 +293,12 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
        bod
        (Context.add
           name
-          (mkTScheme (module PolymorphicTypeScheme)
-             (PolymorphicTypeScheme.mkpt lvl val_t)) ctx)
+          (PolymorphicTypeScheme (lvl, val_t))
+          ctx)
+          (* (mkTScheme (module PolymorphicTypeScheme) *)
+          (*    (PolymorphicTypeScheme.mkpt lvl val_t)) ctx) *)
        lvl
+
   (* Recursive Let Binding*)
   | P.LetRec (name, e1, bod) ->
      let val_t = typecheck e1 ctx (lvl + 1) in
@@ -253,9 +306,11 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
        bod
        (Context.add
           name
-          (mkTScheme
-             (module PolymorphicTypeScheme)
-             (PolymorphicTypeScheme.mkpt lvl val_t))
+          (PolymorphicTypeScheme (lvl, val_t))
+
+          (* (mkTScheme *)
+          (*    (module PolymorphicTypeScheme) *)
+          (*    (PolymorphicTypeScheme.mkpt lvl val_t)) *)
           ctx)
        lvl
 
