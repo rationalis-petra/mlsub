@@ -104,9 +104,10 @@ let pWhitespace1 = take_while1 is_whitespace
 
 (* define functions to work on parsers *)
 let token str = string str <* pWhitespace1
+let stoken str = string str <* pWhitespace
 let toTok p = p <* pWhitespace
 
-let parens p = char '(' *> pWhitespace *> p <* pWhitespace <* char ')'
+let parens p = stoken "(" *> pWhitespace *> p <* pWhitespace <* stoken ")"
 
 (* define the parsers themselves *)
 
@@ -174,22 +175,23 @@ let pRecord expr : expr t =
       (fun varName -> expr >>| (fun (expr: expr) -> (varName, expr)))
     in sep_by (toTok (char ',')) recordEntry
   in
-  (string "{" *> pWhitespace *> recordList <* string "}") >>| (fun list -> Record list)
+  (stoken "{" *> recordList <* stoken "}") >>| (fun list -> Record list)
 
                          
 let pBinary expr : expr t =
   (* Utility for constructing binary operator parsers *)
   let mkBin e op =
     let rec go acc =
-      (lift2 (fun f x -> f acc x) op e >>= go) <|> return acc in
-    e >>= fun init ->
-    (* (print_endline ("parsed: " ^ string_of_expr init)); *)
-    go init in
+      choice[
+          (lift2 (fun f x -> f acc x) op e >>= go);
+          (lift (fun f -> Apply (acc, f)) e >>= go);
+          return acc] in
+    e >>= go  in
 
   (* Standard Operators: +, -, etc. according to standard precedence: * and / 
    * bind tighter than + and - bind tighter than > and = bind tighter than 'and' 
    * and 'or' *)
-  let factor = choice [(parens expr); pInteger; pBool; pVar] in
+  let factor = choice [(parens expr); pInteger; pBool; pAccess; pVar] in
   let term   = mkBin factor (pMul <|> pDiv) in
   let arith  = mkBin term (pAdd <|> pSub) in
   let logic  = mkBin arith (pGre <|> pEql) in
@@ -220,23 +222,34 @@ let pFun expr : expr t =
 let pExpr : expr t =
   pWhitespace *>
   fix (fun expr ->
-  let rec buildApply = function
-    | [] -> Int 0
-    | [x] -> x
-    | (x :: xs) -> Apply (buildApply xs, x) in
-  let build_single_expr = 
-    choice [(* parens expr; *)
-        parens expr;
+    choice [
         pIf expr;
         pLet expr;
         pLetRec expr;
         pRecord expr;
         pFun expr;
         pBinary expr;
-        pAccess;
-        pVar] in
-  (many1 (build_single_expr <* pWhitespace)) >>|
-    (fun x -> buildApply (List.rev x)))
+    ])
+
+
+(* let pExpr : expr t = *)
+(*   pWhitespace *> *)
+(*   fix (fun expr -> *)
+(*   let rec buildApply = function *)
+(*     | [] -> Int 0 *)
+(*     | [x] -> x *)
+(*     | (x :: xs) -> Apply (buildApply xs, x) in *)
+(*   let build_single_expr = *)
+(*     choice [(\* parens expr; *\) *)
+(*         pIf expr; *)
+(*         pLet expr; *)
+(*         pLetRec expr; *)
+(*         pRecord expr; *)
+(*         pFun expr; *)
+(*         pBinary expr] *)
+(*   in *)
+(*   (many1 (build_single_expr <* pWhitespace)) >>| *)
+(*     (fun x -> buildApply (List.rev x))) *)
 
 
 

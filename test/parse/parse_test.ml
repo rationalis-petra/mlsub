@@ -4,8 +4,6 @@ open OUnit2
 let parseTest name expr str = 
   name >:: (fun _ -> assert_equal expr (expr_of_string str))
 
-
-
 let tests = "test suite for parsing" >::: [
   (* Boolean Literals *)
   parseTest "bool_true"  (Bool true) "true";
@@ -64,6 +62,26 @@ let tests = "test suite for parsing" >::: [
          Op (Eql, Int 6, Int 2)))
     "2 / 10 > 3 or 6 = 2"; 
 
+  parseTest "bin_parens1"
+    (Op (Add, Int 2, Int 3))
+    "( 2 ) + ( 3 )";
+  parseTest "bin_parens2"
+    (Op (Add,
+         (Op (Gre, Int 2, Int 3)),
+         (Op (And, Int 4, Bool true))))
+    "( 2 > 3 ) + (4 and true)";
+  parseTest "bin_parens_3"
+    (Op (Add, Op (Gre, Int 1, Int 2), Int 3))
+    "(1 > 2) + 3";
+
+  (* Binary/Function Precedence Tests *)
+  parseTest "bin_fun_pred1"
+    (Op (Add, Apply (Int 3, Int 2), Int 3))
+    "( 3 2 ) + ( 3 )";
+  parseTest "bin_fun_pred2"
+    (Op (Add, Apply (Int 3, Int 2), Int 3))
+    "3 2 + ( 3 )";
+
   (* If Expression *)
   parseTest "if_simple"
     (If (Int 1, Int 2, Int 7))
@@ -75,11 +93,11 @@ let tests = "test suite for parsing" >::: [
          If (Bool true, Int 2, Int 3)))
     "if 1 > 2 + 3 then fun x -> x + 2 else if true then 2 else 3";
 
-  (* parseTest "if_complex2" *)
-  (*   (If (Op (Gre, Int 1, Op (Add, Int 2, Int 3)), *)
-  (*        Apply(Var "f", Int 3), *)
-  (*        Op(Add, Int 5, Int 2))) *)
-  (*   "if (100) then 3 else 5 + 2"; *)
+  parseTest "if_complex2"
+    (If (Op (Gre, Int 1, Op (Add, Int 2, Int 3)),
+         Apply(Var "f", Int 3),
+         Op(Add, Int 5, Int 2)))
+    "if 1>2+3 then f 3 else 5 + 2";
 
 
   (* Let Expression *)
@@ -132,7 +150,15 @@ let tests = "test suite for parsing" >::: [
   (* Function Application *)
   parseTest "app_simple"
     (Apply (Var "f", Var "x"))
-    "f x"
+    "f x";
+  parseTest "app_multi"
+    (Apply ((Apply (Var "f", Var "x")), Var "y"))
+    "f x y";
+  parseTest "app_in_if"
+    (If (Apply (Var "f", Var "x"),
+         Apply (Var "f", Var "y"),
+         Apply (Var "f", Var "z")))
+    "if f x then f y else f z";
     ]
 
 
