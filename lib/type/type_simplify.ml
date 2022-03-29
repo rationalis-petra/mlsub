@@ -42,6 +42,27 @@ module CompactType = struct
      rcd: (compact_type SMap.t) option; 
      func: (compact_type * compact_type) option}
 
+  let rec compact_type_to_str {vars; prims; rcd; func} = 
+    let set_fold_str val_to_str v str  = 
+      (val_to_str v) ^ "," ^ str  in
+    let opt_to_str val_to_str = function
+      | Some x -> "Some (" ^ (val_to_str x) ^ ")"
+      | None -> "None" in
+    "{vars = [" ^ (VarStateSet.fold (set_fold_str vst_to_str) vars "]\n") ^
+      "prims = [" ^
+        (PrimSet.fold (set_fold_str string_of_primitive) prims "]\n") ^
+          "rcd = [" ^ (opt_to_str
+                        (fun x ->
+                          SMap.fold
+                            (fun nam v str ->
+                              nam ^ ":" ^ (compact_type_to_str v) ^ "," ^ str)
+                            x "]\n") rcd) ^ "]\n" ^
+            "func = [" ^ (opt_to_str
+                            (fun (x, y) ->
+                              (compact_type_to_str x) ^ " -> " ^
+                                (compact_type_to_str y))
+                         func) ^ "]}"
+
 
   (* Shorthand for use outside the module *)
   type t = compact_type
@@ -83,8 +104,7 @@ module CompactType = struct
        return None if either option contains a value. 
      + option_zip is a convenience wrapper around option which will place two
        values in an option into a tuple
-     + merge_map
-*)
+     + merge_map *)
 
 
   let rec merge pol (lhs : compact_type) (rhs : compact_type) : compact_type  =

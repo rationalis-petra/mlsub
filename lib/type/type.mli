@@ -24,7 +24,7 @@ val string_of_type : Data.mlsub_type -> string
 module Internal : sig
   module Data = Data
   module Check = Type_check
-  module Target = Type_target
   module Coalesce = Type_coalesce
+  module Simplify = Type_simplify
 end
 

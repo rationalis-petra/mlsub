@@ -15,7 +15,7 @@ let typePrintCtx name expr ctx =
 let typeTest name expr simple_type = 
   name >:: (fun _ -> assert_equal simple_type (infer_simple_type expr))
 
-let typeTestCtxt name expr simple_type ctx =
+let typeTestCtx name expr simple_type ctx =
   name >:: (fun _ -> assert_equal simple_type (typecheck expr ctx 0))
 
 let typeTestCtxtLvl name expr simple_type ctx lvl =
@@ -25,8 +25,14 @@ let tests = "test suite for typing" >::: [
   (* Booleans *)
   typeTest "bool_true"  (Bool true)  (Primitive PrimBool);
   typeTest "bool_false" (Bool false) (Primitive PrimBool);
-  typePrintCtx "bool_fn"
+  typeTestCtx "bool_fn"
     (Apply (Var "not", Bool false))
+    (Variable
+      {lower_bounds = [Primitive PrimBool];
+       upper_bounds = [];
+       level = 0;
+       uid = 0})
+    (* (Primitive PrimBool) *)
     (Context.singleton "not"
        (SimpleTypeScheme (Function (Primitive PrimBool, Primitive PrimBool))));
 
@@ -39,7 +45,7 @@ let tests = "test suite for typing" >::: [
   (let context = (Context.empty
                   |> Context.add "x" (SimpleTypeScheme (Primitive PrimInt)))
                   in
-  typeTestCtxt "variable" (Var "x") (Primitive PrimInt) context);
+  typeTestCtx "variable" (Var "x") (Primitive PrimInt) context);
 
   (* Operators with Primitives *)
   typeTest "op_add_simple"
@@ -51,9 +57,6 @@ let tests = "test suite for typing" >::: [
   typeTest "op_and_simple"
     (Op (And, Bool true, Bool false))
     (Primitive PrimBool);
-
-  (* typePrint "func_polymorphic_simple" *)
-  (*   (Fun ("x", Var "x")) *)
     ]
 
 let _ = run_test_tt_main tests

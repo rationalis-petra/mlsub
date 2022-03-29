@@ -4,11 +4,11 @@
  (libraries type ounit2))
 
 (test
- (name type_target_test)
- (modules type_target_test)
+ (name type_coalesce_test)
+ (modules type_coalesce_test)
  (libraries type ounit2))
 
 (test
- (name type_coalesce_test)
- (modules type_coalesce_test)
+ (name type_canonicalize_test)
+ (modules type_canonicalize_test)
  (libraries type ounit2))

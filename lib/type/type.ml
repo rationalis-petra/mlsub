@@ -23,7 +23,7 @@ let default_context =
 
 let infer_type expr =
   let simple_t = Type_check.typecheck expr default_context 0 in
-  let compact_t = Type_simplify.CompactTypeScheme.compact_type simple_t in
+  let compact_t = Type_simplify.CompactTypeScheme.canonicalize_type simple_t in
   let simplified_t = Type_simplify.CompactTypeScheme.simplify_type compact_t in
   Type_simplify.CompactTypeScheme.coalesce_compact_type simplified_t
 
@@ -32,7 +32,6 @@ let string_of_type = Data.string_of_type
 module Internal = struct
   module Data = Data
   module Check = Type_check
-  module Target = Type_target
   module Coalesce = Type_coalesce
   module Simplify = Type_simplify
 end

@@ -105,7 +105,11 @@ let rec constrain (lhs: simple_type) (rhs: simple_type) =
     if (lhs == rhs) || (cached lhs rhs) then () 
     else
       match (lhs, rhs) with
-      | (Primitive n0, Primitive n1) when n0 = n1 -> ()
+      | (Primitive p0, Primitive p1) when p0 = p1 -> ()
+      | (Primitive p0, Primitive p1) ->
+         (err ("attempting to constrain primitive type: "
+          ^ string_of_primitive p0 ^ " to be a subtype of "
+          ^ string_of_primitive p1))
 
       (* Function types are cconstrained according to the usual
             rules of contravariance and covariance*)
@@ -130,10 +134,10 @@ let rec constrain (lhs: simple_type) (rhs: simple_type) =
 
       (* The tricky bits come when there's variables on the left
             or right, as this means that we have to carefully
-            cconstrain them. This involves checking the level. If the level
+            constrain them. This involves checking the level. If the level
             comparison succeeds (TODO: what does this mean?) Then
             + First, we add the corresponding
-              cconstraint to the upper/lower bounds, respectively 
+              constraint to the upper/lower bounds, respectively 
             + Second, we iterate over the existing opposite bounds in
               order to make sure that they become consistent with the
               new bound (TODO: more carefully investigate why...) 
