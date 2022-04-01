@@ -337,10 +337,10 @@ module CompactTypeScheme = struct
    For more information, see section 4: Type simplification tradeoffs of the
    paper "The Simple Essence of Algebraic Subtyping" *) 
 
-  module VarUidSet = Set.Make(
+  module NegVarUidSet = Set.Make(
                          struct
                            type t = variable_state
-                           let compare x y = Int.compare x.uid y.uid
+                           let compare x y = Int.compare (-x.uid) (-y.uid)
                          end)
   module VarUidMap = Map.Make(
                          struct
@@ -351,7 +351,7 @@ module CompactTypeScheme = struct
   
 
   let simplify_type (cty : compact_type_scheme) : compact_type_scheme = 
-    let all_vars = ref (VarUidSet.of_seq
+    let all_vars = ref (NegVarUidSet.of_seq
                           (Seq.map (fun (a, _) -> a) (VarMap.to_seq cty.rec_vars
                      ))) in 
     let rec_vars : (unit -> CompactType.t) VarUidMap.t ref = ref VarUidMap.empty in
@@ -364,7 +364,7 @@ module CompactTypeScheme = struct
     (* Perform the analysis, and return a lazy reconstruction *)
     let rec go (ty : CompactType.t) (pol : polarity) : unit -> CompactType.t = 
       VarStateSet.iter (fun tv ->
-          all_vars := VarUidSet.add tv !all_vars;
+          all_vars := NegVarUidSet.add tv !all_vars;
           let new_occs = SimpleSet.of_seq(
                              Seq.append
                                (Seq.map
@@ -399,14 +399,16 @@ module CompactTypeScheme = struct
 
       let rcd_ = Option.map (SMap.map (fun x -> go x pol)) ty.rcd in
       let func_ = Option.map (fun (l, r) -> (go l (inv pol), go r pol)) ty.func in
-      (* Return value of go *)
+
+
+      (* Return thunk which will reconstruct the type *)
       (fun () ->
         let new_vars = List.flatten (List.map
                                        (fun tv ->
-                                         match VarMap.find_opt tv ! var_subst with 
-                                         | Some(Some(tv2)) -> tv2 :: []
+                                         match VarMap.find_opt tv !var_subst with 
+                                         | Some(Some(tv2)) -> [tv2]
                                          | Some(None) -> []
-                                         | None -> [])
+                                         | None -> [tv])
                                        (List.of_seq (VarStateSet.to_seq ty.vars))) in
         {vars = VarStateSet.of_list (new_vars);
          prims = ty.prims;
@@ -418,7 +420,9 @@ module CompactTypeScheme = struct
     (* print_endline ("occ: ": co_occurences); *)
     (* print_endline ("rec: ": rec_vars); *)
 
-    VarUidSet.iter
+    (* If a non-recursive variable occurs only in a positive (negative)
+     * position, then we can replace it with Top (Bottom) by removing it   *)
+    NegVarUidSet.iter
       (fun v0 ->
         if VarUidMap.mem v0 !rec_vars then
           match (PolVarMap.find_opt (v0, Positive) !co_occurences,
@@ -431,8 +435,12 @@ module CompactTypeScheme = struct
           ())
     !all_vars;
 
+    (* If two type variables, e.g. 'a and 'b always occur positively
+      (resp. negatively)  along with some 'b  and vice versa, this means that
+      the two are indistinguishable, and can therefore be unified. This section
+      performs that unification *)
     let pols = [ Positive; Negative] in
-    VarUidSet.iter
+    NegVarUidSet.iter
       (fun v ->
         if VarMap.mem v !var_subst then
           (* println ... *)
@@ -445,13 +453,13 @@ module CompactTypeScheme = struct
                     (if (not (w = v)) &&
                           (not (VarMap.mem w !var_subst)) &&
                             ((VarUidMap.mem v !rec_vars) = (VarUidMap.mem w !rec_vars))
-                     then 
+                     then
                        (* print_endline  $w $get co_occurences (pol, w) *)
                        if (match (PolVarMap.find_opt (w, pol) !co_occurences)
                            with
                            | None -> false
                            | Some s -> SimpleSet.mem (Variable v) !s)
-                       then 
+                       then
                          var_subst := VarMap.add w (Some v) !var_subst;
                      (match VarUidMap.find_opt w !rec_vars with
                       | Some b_w ->
@@ -473,7 +481,7 @@ module CompactTypeScheme = struct
                            
                  | Primitive atom ->
                     (match Option.map (fun x -> SimpleSet.mem (Primitive atom) !x)
-                             (PolVarMap.find_opt (v, inv pol) !co_occurences) with 
+                             (PolVarMap.find_opt (v, inv pol) !co_occurences) with
                        
                      | Some true ->
                         var_subst := VarMap.add v None !var_subst;

@@ -12,3 +12,9 @@
  (name type_canonicalize_test)
  (modules type_canonicalize_test)
  (libraries type ounit2))
+
+
+(test
+ (name type_test)
+ (modules type_test)
+ (libraries type ounit2))
