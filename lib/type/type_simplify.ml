@@ -158,27 +158,40 @@ module CompactTypeScheme = struct
   (* Alias for use outside the module *)
   type t = compact_type_scheme
 
+  let to_str cts =  
+    "{term : " ^ CompactType.compact_type_to_str cts.term ^ 
+      "\nrec_vars: " ^
+        (VarMap.fold
+           (fun _ _ b -> "var" ^ b) (* s ^ CompactType.compact_type_to_str a ^ b) *)
+           cts.rec_vars
+           "") ^ "}"
+
   let map_of_rcd (f : 'a -> 'b) (lst : (string * 'a) list) = 
     SMap.of_seq (List.to_seq (List.map (fun (key, value) ->
                                   (key, f value)) lst)) 
 
 
-  let rec close_over (xs: VarStateSet.t) (f: variable_state -> VarStateSet.t): VarStateSet.t =
+  (* Given a set xs : VarStateSet and a function f: variable_state ->
+   * VarStateSet, produce a set y such that ∀a∈y. f(a) ⊆ y *)
+  let close_over (xs: VarStateSet.t) (f: variable_state -> VarStateSet.t): VarStateSet.t =
+    (* A helper for close_over*)
+    let rec close_over_cached dne todo f: VarStateSet.t =
+      if VarStateSet.is_empty todo then
+        dne
+      else 
+        let flat_map f s = 
+          VarStateSet.of_seq
+            (Seq.flat_map
+               (fun x -> VarStateSet.to_seq (f x))
+               (VarStateSet.to_seq s)) in
+        let new_done = VarStateSet.union dne todo in
+        close_over_cached new_done (VarStateSet.diff (flat_map f todo)  new_done) f
+    in
     close_over_cached VarStateSet.empty xs f
-
-  and close_over_cached dne todo f: VarStateSet.t =
-    if VarStateSet.is_empty todo then
-      dne
-    else 
-      let flat_map f s = 
-        VarStateSet.of_seq
-          (Seq.flat_map
-             (fun x -> VarStateSet.to_seq (f x))
-             (VarStateSet.to_seq s)) in
-      let new_done = VarStateSet.union dne todo in
-      close_over_cached new_done (VarStateSet.diff (flat_map f todo)  new_done) f
     
   let empty = CompactType.empty 
+
+
 
   let compact_type (ty: simple_type) : compact_type_scheme =
     let recursive : (variable_state PVarMap.t) ref = ref (PVarMap.empty) in
@@ -227,13 +240,14 @@ module CompactTypeScheme = struct
       rec_vars = !rec_vars }
 
 
-
+  (* The canonicalize_type function takes in a simple type and outputs *)
   let canonicalize_type (ty : simple_type) : compact_type_scheme =
+    (* Use our custom comparator *)
     let recursive : (compact_polar_type, variable_state) Hashtbl.t = Hashtbl.create 10 in
     let rec_vars = ref VarMap.empty in
     
     (* Turn the outermost layer of a SimpleType into a CompactType, leaving type *)
-    (* variables untransformed *)
+    (* variables untransformed. Then, bounds will be  *)
     let rec go_outer ty pol =
       match ty with
       | Primitive p -> {empty with prims = PrimSet.singleton p}
@@ -244,20 +258,19 @@ module CompactTypeScheme = struct
       | Variable tv ->
          let tvs = close_over (VarSet.singleton tv)
                      (fun vs ->
-                       let bounds = if pol = Positive then
-                                      vs.lower_bounds
-                                    else
-                                      vs.upper_bounds in
+                       let bounds = match pol with
+                         | Positive -> vs.lower_bounds
+                         | Negative -> vs.upper_bounds in
                        VarSet.of_list (collect (function
                                            | Variable vs -> Some vs
                                            | _ -> None) bounds)) in
          {empty with vars = tvs} in
 
-    let rec go1 (ty: CompactType.t) (pol : polarity) in_process = 
-      if CompactType.is_empty ty then
-        ty
-      else 
-        let pty = (ty, pol) in
+    (* TODO: the bug boi somewhere in here!! *)
+    (* Run after go_outer, go_inner merges the bounds of all type variables *)
+    let rec go1 (ty: CompactType.t) (pol : polarity) (in_process : CPTSet.t) = 
+      let pty = (ty, pol) in
+      if CompactType.is_empty ty then ty else
         if CPTSet.mem pty in_process then
           let vars = 
             match Hashtbl.find_opt recursive pty with
@@ -268,35 +281,37 @@ module CompactTypeScheme = struct
                 fv) in
           {empty with vars = VarSet.singleton vars}
         else 
-          let bound =
+          let bound1 =
             reduce_option
               (CompactType.merge pol)
               (List.flatten
                  (List.map
                     (fun tv ->
-                      let bounds = if pol = Positive then
-                                     tv.lower_bounds
-                                   else
-                                     tv.upper_bounds in 
+                      let bounds = match pol with
+                        | Positive -> tv.lower_bounds
+                        | Negative -> tv.upper_bounds in
                       List.map (function
                           | Variable _ -> empty
                           | b -> go_outer b pol) bounds)
                     (List.of_seq (VarSet.to_seq ty.vars)))) in
-          let res = match bound with
-            | Some x -> CompactType.merge pol ty x
-            | None -> CompactType.merge pol ty empty in
-          let ipn = CPTSet.add pty in_process in
+          let bound = match bound1 with
+            | Some x -> x
+            | None -> empty in
+          let res = CompactType.merge pol ty bound in 
+
+          let new_inp = CPTSet.add pty in_process in
           let adapted : CompactType.t = {
               vars = res.vars;
               prims = res.prims;
-              rcd = Option.map (SMap.map (fun v -> go1 v pol ipn)) res.rcd;
-              func = Option.map (fun (l, r) -> (go1 l (inv pol) ipn,
-                                                go1 r pol ipn)) res.func} in
-         match Hashtbl.find_opt recursive pty with
-         | Some v ->
-            rec_vars := VarMap.add v adapted (!rec_vars);
-            {empty with vars = VarSet.singleton v}
-         | None -> adapted in
+              rcd = Option.map (SMap.map (fun v -> go1 v pol new_inp)) res.rcd;
+              func = Option.map (fun (l, r) -> (go1 l (inv pol) new_inp,
+                                                go1 r pol new_inp)) res.func} in
+          match Hashtbl.find_opt recursive pty with
+          | Some v ->
+             rec_vars := VarMap.add v adapted (!rec_vars);
+             {empty with vars = VarSet.singleton v}
+          | None -> adapted in
+
     {term = go1 (go_outer ty Positive) Positive CPTSet.empty;
      rec_vars = !rec_vars}   
   

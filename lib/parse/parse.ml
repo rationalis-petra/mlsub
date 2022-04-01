@@ -16,11 +16,12 @@ type expr
   | Apply of expr * expr;;
 
 let reserved_words = ["let"; "rec"; "in"; "and"; "or"; "if"; "else"; "then"]
+(* let special_chars = ['+', '-', '*', '/', '>', '=', ',', '{', '}', '(', ')'] *)
 
 let string_of_op = function
-  | Add -> "Add"
-  | Sub -> "Sub"
-  | Mul -> "Mul"
+  | Add -> "Add"     
+  | Sub -> "Sub"     
+  | Mul -> "Mul"     
   | Div -> "Div"
   | Gre -> "Gre"
   | Eql -> "Eql"
@@ -171,7 +172,7 @@ let pAccess : expr t = char '#' *> pVarStr >>|  (fun var -> Access var)
 
 let pRecord expr : expr t =
   let recordList = 
-    let recordEntry = (pVarStr <* string "=" <* pWhitespace) >>= 
+    let recordEntry = (pVarStr <* stoken "=") >>= 
       (fun varName -> expr >>| (fun (expr: expr) -> (varName, expr)))
     in sep_by (toTok (char ',')) recordEntry
   in

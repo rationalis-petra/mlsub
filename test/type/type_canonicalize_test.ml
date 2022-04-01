@@ -10,6 +10,13 @@ open Canon
 let canonTest name c_type s_type =
   name >:: (fun _ -> assert_equal c_type (canonicalize_type s_type))
 
+let canonTestPrint name c_type s_type =
+  name >:: (fun _ ->
+    let c_type2 = (canonicalize_type s_type) in
+    print_endline (CompactTypeScheme.to_str c_type);
+    print_endline (CompactTypeScheme.to_str c_type2);
+    assert_equal c_type c_type2)
+
 (* let typeTestCtx name expr simple_type ctx = *)
 (*   name >:: (fun _ -> assert_equal simple_type (typecheck expr ctx 0)) *)
 
@@ -59,12 +66,12 @@ let tests = "test suite for typing" >::: [
 
   canonTest "unbound_var" cscheme_unbound_var (Variable unbound_var);
 
-  (* canonTest "id_func" *)
+  (* canonTestPrint "id_func" *)
   (*   cscheme_id_func *)
   (*   (Function *)
   (*      (Variable unbound_var, *)
   (*       Variable unbound_var)); *)
-    ]
+  (*   ] *)
 (*   typeTest "bool_false" (Bool false) (Primitive PrimBool); *)
 (*   typeTestCtx "bool_fn" *)
 (*     (Apply (Var "not", Bool false)) *)
@@ -98,6 +105,6 @@ let tests = "test suite for typing" >::: [
 (*   typeTest "op_and_simple" *)
 (*     (Op (And, Bool true, Bool false)) *)
 (*     (Primitive PrimBool); *)
-(*     ] *)
+    ]
 
 let _ = run_test_tt_main tests

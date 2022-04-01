@@ -13,13 +13,27 @@ let typePrintCtx name expr ctx =
     assert_bool "type_print" true)
 
 let typeTest name expr simple_type = 
-  name >:: (fun _ -> assert_equal simple_type (infer_simple_type expr))
+  name >:: (fun _ -> assert_equal simple_type (infer_simple_type expr) ~cmp:
+                       (fun x y -> CompSimple.compare x y = 0))
 
 let typeTestCtx name expr simple_type ctx =
   name >:: (fun _ -> assert_equal simple_type (typecheck expr ctx 0))
 
 let typeTestCtxtLvl name expr simple_type ctx lvl =
   name >:: (fun _ -> assert_equal simple_type (typecheck expr ctx lvl))
+
+
+let tv0 : variable_state = {
+    lower_bounds = [];
+    upper_bounds = [];
+    level = 0;
+    uid = 0}
+
+let tv1 : variable_state = {
+    lower_bounds = [];
+    upper_bounds = [Primitive PrimInt];
+    level = 0;
+    uid = 1}
 
 let tests = "test suite for typing" >::: [
   (* Booleans *)
@@ -41,7 +55,7 @@ let tests = "test suite for typing" >::: [
   typeTest "integer2"   (Int 54)     (Primitive PrimInt);
   typeTest "integer3"   (Int (-10))  (Primitive PrimInt);
 
-  (* Variables in a Dummy Context *) 
+  (* Variables in a Dummy Context *)
   (let context = (Context.empty
                   |> Context.add "x" (SimpleTypeScheme (Primitive PrimInt)))
                   in
@@ -57,6 +71,16 @@ let tests = "test suite for typing" >::: [
   typeTest "op_and_simple"
     (Op (And, Bool true, Bool false))
     (Primitive PrimBool);
+
+  typeTest "fun_id"
+    (Fun ("x", Var "x"))
+    (Function (Variable tv0, Variable tv0));
+
+
+  (* This test is to check whether the bounds are correctly applied: *) 
+  typeTest "fun_plus"
+    (Fun ("x", Op (Add, Var "x", Var "x")))
+    (Function (Variable tv1, Primitive PrimInt));
     ]
 
 let _ = run_test_tt_main tests

@@ -39,6 +39,9 @@ let tests = "test suite for parsing" >::: [
   parseTest "record_spacing2"
     (Record [("x", (Int 1)); ("y", (Int 2))])
     "{x=1,y=2}";
+  (* parseTest "record_cmplx" *)
+  (*   (Record [("x", (Int 1)); ("y", (Int 2))]) *)
+  (*   "{x=if x the y else z,y=2}"; *)
 
   (* BINARY EXPRESSIONS *)
   parseTest "bin_simple"
@@ -154,11 +157,24 @@ let tests = "test suite for parsing" >::: [
   parseTest "app_multi"
     (Apply ((Apply (Var "f", Var "x")), Var "y"))
     "f x y";
+  parseTest "app_accessor"
+    (Apply (Access "x", Var "rcd"))
+    "#x rcd";
   parseTest "app_in_if"
     (If (Apply (Var "f", Var "x"),
          Apply (Var "f", Var "y"),
          Apply (Var "f", Var "z")))
     "if f x then f y else f z";
+  parseTest "app_in_let"
+    (Let ("x",
+          (Apply (Var "f", Var "y")),
+          (Apply (Var "x", Var "z"))))
+    "let x = f y in x z";
+  (* parseTest "app_in_rcd" *)
+  (*   (Record *)
+  (*      ["x", (Apply (Var "f", Var "a")); *)
+  (*       "y", (Apply (Var "f", Var "b"))]) *)
+  (*   "{x = f a, y = f b"; *)
     ]
 
 
