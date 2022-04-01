@@ -7,15 +7,17 @@ let rec reduce_option f = function
   | [] -> None
   | x :: xs -> Option.map (fun y -> f x y) (reduce_option f xs)
 
-(* take a function which merges an A and a B, then apply it to an A option and *)
-(* a B option *)
-let option_merge (f: 'a -> 'b -> 'c )
-      (o1 : 'a option) (o2 : 'b option) : 'c option = 
-  Option.join (Option.map (fun x -> Option.map (fun y -> f x y) o2) o1)
+(* Given a function to merge two values of 'a and two options of 'a, either:
+ * + 
+ *)
+let option_merge (f: 'a -> 'a -> 'a )
+      (o1 : 'a option) (o2 : 'a option) : 'a option = 
+  match (o1, o2) with
+  | (Some l, Some r) -> Some (f l r)
+  | (Some l, None) -> Some l
+  | (None,  Some r) -> Some r
+  | (None, None) -> None
 
-(* merge an A option and a B option into an (A, B) option *)
-let option_zip (o1 : 'a option) (o2 : 'b option) : ('a * 'b) option =  
-  option_merge (fun x y -> (x, y)) o1 o2
 
 let merge_map (f: 'a -> 'b -> 'c) : 'a SMap.t -> 'b SMap.t -> 'c SMap.t =
   SMap.merge (fun _ -> (option_merge f))
@@ -42,7 +44,7 @@ module CompactType = struct
      rcd: (compact_type SMap.t) option; 
      func: (compact_type * compact_type) option}
 
-  let rec compact_type_to_str {vars; prims; rcd; func} = 
+  let rec to_str {vars; prims; rcd; func} = 
     let set_fold_str val_to_str v str  = 
       (val_to_str v) ^ "," ^ str  in
     let opt_to_str val_to_str = function
@@ -55,12 +57,12 @@ module CompactType = struct
                         (fun x ->
                           SMap.fold
                             (fun nam v str ->
-                              nam ^ ":" ^ (compact_type_to_str v) ^ "," ^ str)
+                              nam ^ ":" ^ (to_str v) ^ "," ^ str)
                             x "]\n") rcd) ^ "]\n" ^
             "func = [" ^ (opt_to_str
                             (fun (x, y) ->
-                              (compact_type_to_str x) ^ " -> " ^
-                                (compact_type_to_str y))
+                              (to_str x) ^ " -> " ^
+                                (to_str y))
                          func) ^ "]}"
 
 
@@ -99,18 +101,12 @@ module CompactType = struct
     (fun () -> (Option.compare (compare_pair compare) func1 func2))))
       
 
-  (* A series of helper functions:
-     + option_merge will merge two values in an option with a given function, or
-       return None if either option contains a value. 
-     + option_zip is a convenience wrapper around option which will place two
-       values in an option into a tuple
-     + merge_map *)
 
-
+  (* TODO: check this function!! *)
   let rec merge pol (lhs : compact_type) (rhs : compact_type) : compact_type  =
     let recd : (compact_type SMap.t) option
-      = Option.map 
-                (fun ((lrec : t SMap.t), (rrec : t SMap.t)) : compact_type SMap.t->
+      = option_merge
+                (fun lrec rrec ->
                   if pol = Positive then
                     (* TODO: same semantics both of & else branches?? *) 
                     SMap.merge (fun _ v1 v2 ->
@@ -120,11 +116,11 @@ module CompactType = struct
                       lrec rrec
                   else
                     merge_map (merge pol) lrec rrec)
-                (option_zip lhs.rcd rhs.rcd) in
-    let funcn = Option.map
-                (fun ((l0, r0), (l1, r1)) ->
+                lhs.rcd rhs.rcd in
+    let funcn = option_merge
+                (fun (l0, r0) (l1, r1) ->
                   (merge (inv pol) l0 l1, merge pol r0 r1))
-                (option_zip lhs.func rhs.func) in
+                lhs.func rhs.func in
     {vars = VarStateSet.union lhs.vars rhs.vars;
      prims = PrimSet.union lhs.prims rhs.prims;
      rcd = recd;
@@ -158,8 +154,16 @@ module CompactTypeScheme = struct
   (* Alias for use outside the module *)
   type t = compact_type_scheme
 
+  (* Utility *)
+  let compare cts1 cts2 =
+    match CompactType.compare cts1.term cts2.term with
+    | 0 -> VarMap.compare CompactType.compare cts1.rec_vars cts2.rec_vars
+    | n -> n
+
+    
+
   let to_str cts =  
-    "{term : " ^ CompactType.compact_type_to_str cts.term ^ 
+    "{term : " ^ CompactType.to_str cts.term ^ 
       "\nrec_vars: " ^
         (VarMap.fold
            (fun _ _ b -> "var" ^ b) (* s ^ CompactType.compact_type_to_str a ^ b) *)
@@ -242,13 +246,12 @@ module CompactTypeScheme = struct
 
   (* The canonicalize_type function takes in a simple type and outputs *)
   let canonicalize_type (ty : simple_type) : compact_type_scheme =
-    (* Use our custom comparator *)
-    let recursive : (compact_polar_type, variable_state) Hashtbl.t = Hashtbl.create 10 in
+    let recursive : (variable_state CPTMap.t) ref = ref CPTMap.empty in
     let rec_vars = ref VarMap.empty in
     
     (* Turn the outermost layer of a SimpleType into a CompactType, leaving type *)
     (* variables untransformed. Then, bounds will be  *)
-    let rec go_outer ty pol =
+    let rec go_outer (ty : simple_type) (pol : polarity) : CompactType.t =
       match ty with
       | Primitive p -> {empty with prims = PrimSet.singleton p}
       | Function (l, r) ->
@@ -273,12 +276,12 @@ module CompactTypeScheme = struct
       if CompactType.is_empty ty then ty else
         if CPTSet.mem pty in_process then
           let vars = 
-            match Hashtbl.find_opt recursive pty with
+            match CPTMap.find_opt pty !recursive with
             | Some x -> x
             | None -> 
                let fv = fresh_var 0 in
-               (Hashtbl.add recursive pty fv;
-                fv) in
+               recursive := CPTMap.add pty fv !recursive;
+               fv in
           {empty with vars = VarSet.singleton vars}
         else 
           let bound1 =
@@ -294,9 +297,12 @@ module CompactTypeScheme = struct
                           | Variable _ -> empty
                           | b -> go_outer b pol) bounds)
                     (List.of_seq (VarSet.to_seq ty.vars)))) in
+          (* Bound is a compact type whose value corresponds to merging either
+           * the upper bounds or lower bounds of tv, depending on polarity *)
           let bound = match bound1 with
             | Some x -> x
-            | None -> empty in
+            | None ->
+               empty in
           let res = CompactType.merge pol ty bound in 
 
           let new_inp = CPTSet.add pty in_process in
@@ -306,14 +312,15 @@ module CompactTypeScheme = struct
               rcd = Option.map (SMap.map (fun v -> go1 v pol new_inp)) res.rcd;
               func = Option.map (fun (l, r) -> (go1 l (inv pol) new_inp,
                                                 go1 r pol new_inp)) res.func} in
-          match Hashtbl.find_opt recursive pty with
+          match CPTMap.find_opt pty !recursive with
           | Some v ->
              rec_vars := VarMap.add v adapted (!rec_vars);
              {empty with vars = VarSet.singleton v}
           | None -> adapted in
 
     {term = go1 (go_outer ty Positive) Positive CPTSet.empty;
-     rec_vars = !rec_vars}   
+     rec_vars = !rec_vars} 
+
   
   (* The simplify_type function relies on two ideas: 
    -----------------------------------------------------------------------------

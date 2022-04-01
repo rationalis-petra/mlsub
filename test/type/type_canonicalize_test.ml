@@ -8,7 +8,8 @@ end
 open Canon
 
 let canonTest name c_type s_type =
-  name >:: (fun _ -> assert_equal c_type (canonicalize_type s_type))
+  name >:: (fun _ -> assert_equal c_type (canonicalize_type s_type)
+                       ~cmp:(fun x y -> CompactTypeScheme.compare x y = 0))
 
 let canonTestPrint name c_type s_type =
   name >:: (fun _ ->
@@ -66,23 +67,23 @@ let tests = "test suite for typing" >::: [
 
   canonTest "unbound_var" cscheme_unbound_var (Variable unbound_var);
 
-  (* canonTestPrint "id_func" *)
-  (*   cscheme_id_func *)
-  (*   (Function *)
-  (*      (Variable unbound_var, *)
-  (*       Variable unbound_var)); *)
-  (*   ] *)
-(*   typeTest "bool_false" (Bool false) (Primitive PrimBool); *)
-(*   typeTestCtx "bool_fn" *)
-(*     (Apply (Var "not", Bool false)) *)
-(*     (Variable *)
-(*       {lower_bounds = [Primitive PrimBool]; *)
-(*        upper_bounds = []; *)
-(*        level = 0; *)
-(*        uid = 0}) *)
-(*     (\* (Primitive PrimBool) *\) *)
-(*     (Context.singleton "not" *)
-(*        (SimpleTypeScheme (Function (Primitive PrimBool, Primitive PrimBool)))); *)
+  canonTest "id_func"
+    cscheme_id_func
+    (Function
+       (Variable unbound_var,
+        Variable unbound_var));
+
+  (* typeTest "bool_false" (Bool false) (Primitive PrimBool); *)
+  (* typeTestCtx "bool_fn" *)
+  (*   (Apply (Var "not", Bool false)) *)
+  (*   (Variable *)
+  (*     {lower_bounds = [Primitive PrimBool]; *)
+  (*      upper_bounds = []; *)
+  (*      level = 0; *)
+  (*      uid = 0}) *)
+  (*   (\* (Primitive PrimBool) *\) *)
+  (*   (Context.singleton "not" *)
+  (*      (SimpleTypeScheme (Function (Primitive PrimBool, Primitive PrimBool)))); *)
 
 (*   (\* Integer Literals *\) *)
 (*   typeTest "integer1"   (Int 0)      (Primitive PrimInt); *)
