@@ -390,8 +390,6 @@ module CompactTypeScheme = struct
                         rec_vars :=
                           VarUidMap.add tv (fun () -> go_later ()) !rec_vars;
                         (* ignore (go_later ()); *)
-                        ()
-                      else ()
           | None -> ()
 
         )
@@ -425,25 +423,23 @@ module CompactTypeScheme = struct
     NegVarUidSet.iter
       (fun v0 ->
         if VarUidMap.mem v0 !rec_vars then
+          print_endline "rec_vars";
           match (PolVarMap.find_opt (v0, Positive) !co_occurences,
                  PolVarMap.find_opt (v0, Negative) !co_occurences) with
           | (Some _, None) | (None, Some _) ->
-             (* println "[!]" $v0; *)
+             print_endline ("[removing type-variable]" ^ vst_to_str v0);
              var_subst := VarMap.add v0 None !var_subst;
-          | occ -> assert (occ != (None, None))
-        else
-          ())
+          | occ -> assert (occ != (None, None)))
     !all_vars;
 
     (* If two type variables, e.g. 'a and 'b always occur positively
       (resp. negatively)  along with some 'b  and vice versa, this means that
       the two are indistinguishable, and can therefore be unified. This section
       performs that unification *)
-    let pols = [ Positive; Negative] in
+    let pols = [ Positive; Negative ] in
     NegVarUidSet.iter
       (fun v ->
-        if VarMap.mem v !var_subst then
-          (* println ... *)
+        if not (VarMap.mem v !var_subst) then
           (List.iter
             (fun pol ->
               (* TODO: potential source of bugs in translation here... *)
@@ -471,13 +467,19 @@ module CompactTypeScheme = struct
                                          CompactType.merge pol (b_v ()) (b_w ()))
                                        !rec_vars
                       | None ->
+                         (match PolVarMap.find_opt (w, inv pol) !co_occurences with
+                          | Some _ -> ()
+                          | None -> print_endline "bad  w, inv pol");
+                         (* This has to be defined; otherwise we'd have removed
+                          * it in the variable substitution phase!*)
                          let w_co_ocss = PolVarMap.find (w, inv pol)
                                            !co_occurences in
-                         ignore
-                           (SimpleSet.filter (fun t ->
-                                t = (Variable v) ||
-                                  SimpleSet.mem t !w_co_ocss)
-                              !(PolVarMap.find (v, inv pol) !co_occurences))))
+                             
+                         let inplace = (PolVarMap.find (v, inv pol) !co_occurences)
+                         in inplace := (SimpleSet.filter (fun t ->
+                                  t = (Variable v) ||
+                                    SimpleSet.mem t !w_co_ocss)
+                                !(PolVarMap.find (v, inv pol) !co_occurences))))
                            
                  | Primitive atom ->
                     (match Option.map (fun x -> SimpleSet.mem (Primitive atom) !x)
@@ -527,8 +529,8 @@ module CompactTypeScheme = struct
           (in_process : (unit -> mlsub_type) CTOVBoolMap.t) : mlsub_type = 
       match CTOVBoolMap.find_opt (ty, pol) in_process with
       | Some t ->
+         (* A recursive type *)
          (let res = t () in
-          (* print_endline "REC[$pol] $ty -> $res"; *)
           res)
       | None ->
          let is_recursive = ref false in 
@@ -548,14 +550,15 @@ module CompactTypeScheme = struct
                   | _ -> fresh_var 0) in
                v_ref := Some new_res;
                new_res) in
-         let new_in_process = CTOVBoolMap.add (ty, pol) (fun () ->
+         (* shadow the binding of in_process for this next block*)
+         let in_process = CTOVBoolMap.add (ty, pol) (fun () ->
                                   vst_to_mlsub_type (v ()))
                                in_process in
          let res : mlsub_type = 
            match ty with
            | Variable tv ->
               (match (VarMap.find_opt tv cty.rec_vars) with
-               | Some x -> go (CompactType x) pol new_in_process
+               | Some x -> go (CompactType x) pol in_process
                | None -> (vst_to_mlsub_type tv))
                               
            (* A compact_type is either a union of types or an intersection of
@@ -570,7 +573,7 @@ module CompactTypeScheme = struct
               let type_as_list = 
                 List.fold_left (@) []
                   [List.map
-                     (fun x -> go (Variable x) pol new_in_process)
+                     (fun x -> go (Variable x) pol in_process)
                      (List.of_seq (VarStateSet.to_seq vars)) ;
                    List.map
                      (fun x -> PrimitiveType x)
@@ -578,12 +581,12 @@ module CompactTypeScheme = struct
                    List.map
                      (fun fs -> RecordType (List.map
                                               (fun (n, v)
-                                               -> (n, go (CompactType v) pol new_in_process))
+                                               -> (n, go (CompactType v) pol in_process))
                                               (List.of_seq (SMap.to_seq fs))))
                      (List.of_seq (Option.to_seq rcd));
                    List.map
-                     (fun (l, r) -> FunctionType (go (CompactType l) (inv pol) new_in_process,
-                                                  go (CompactType r) pol new_in_process))
+                     (fun (l, r) -> FunctionType (go (CompactType l) (inv pol) in_process,
+                                                  go (CompactType r) pol in_process))
                      (List.of_seq (Option.to_seq func))] in
 
               let rec type_opt_of_type_list = function

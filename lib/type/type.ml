@@ -22,6 +22,8 @@ let default_context =
         (Function (Primitive PrimBool, Primitive PrimBool))))
 
 let infer_type expr =
+  (* Reset counter!! *)
+  Data.var_id_counter := 0;
   let simple_t = Type_check.typecheck expr default_context 0 in
   let compact_t = Type_simplify.CompactTypeScheme.canonicalize_type simple_t in
   let simplified_t = Type_simplify.CompactTypeScheme.simplify_type compact_t in

@@ -170,11 +170,11 @@ let tests = "test suite for parsing" >::: [
           (Apply (Var "f", Var "y")),
           (Apply (Var "x", Var "z"))))
     "let x = f y in x z";
-  (* parseTest "app_in_rcd" *)
-  (*   (Record *)
-  (*      ["x", (Apply (Var "f", Var "a")); *)
-  (*       "y", (Apply (Var "f", Var "b"))]) *)
-  (*   "{x = f a, y = f b"; *)
+  parseTest "app_in_rcd"
+    (Record
+       ["x", (Apply (Var "f", Var "a"));
+        "y", (Apply (Var "f", Var "b"))])
+    "{x = f a, y = f b}";
     ]
 
 

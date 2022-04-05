@@ -31,12 +31,34 @@ let compact_bool : CompactType.t =
    rcd = None;
    func = None}
 
+
 let cscheme_bool : CompactTypeScheme.t =
   { term = compact_bool;
     rec_vars = VarMap.empty }
 
+
+(* The type of an integer *)
+let compact_int : CompactType.t = 
+  {vars = VarStateSet.empty;
+   prims = PrimSet.singleton PrimInt;
+   rcd = None;
+   func = None}
+
+let cscheme_int : CompactTypeScheme.t =
+  { term = compact_int;
+    rec_vars = VarMap.empty }
+
+
+
+(* The type of an unbound (polymorphic) variable, e.g. 'a in the type 'a -> 'a *)
 let unbound_var : variable_state = {
     lower_bounds = [];
+    upper_bounds = [];
+    level = 0;
+    uid = 0;}
+
+let int_var : variable_state = {
+    lower_bounds = [Primitive PrimInt];
     upper_bounds = [];
     level = 0;
     uid = 0;}
@@ -61,9 +83,20 @@ let cscheme_id_func : CompactTypeScheme.t =
   { term = compact_id_func;
     rec_vars = VarMap.empty }
 
-let tests = "test suite for typing" >::: [
+(* let compact_int_func : CompactType.t =  *)
+(*   {vars = VarStateSet.empty; *)
+(*    prims = PrimSet.empty; *)
+(*    rcd = None; *)
+(*    func = Some (compact_unbound_var, compact_unbound_var)} *)
+
+(* let cscheme_int_func : CompactTypeScheme.t =  *)
+(*   { term = compact_id_func; *)
+(*     rec_vars = VarMap.empty } *)
+
+let tests = "test suite for type canonicalization" >::: [
   (* Primitives *)
   canonTest "prim_bool" cscheme_bool (Primitive PrimBool);
+  canonTest "prim_int"  cscheme_int  (Primitive PrimInt);
 
   canonTest "unbound_var" cscheme_unbound_var (Variable unbound_var);
 
@@ -73,39 +106,12 @@ let tests = "test suite for typing" >::: [
        (Variable unbound_var,
         Variable unbound_var));
 
-  (* typeTest "bool_false" (Bool false) (Primitive PrimBool); *)
-  (* typeTestCtx "bool_fn" *)
-  (*   (Apply (Var "not", Bool false)) *)
-  (*   (Variable *)
-  (*     {lower_bounds = [Primitive PrimBool]; *)
-  (*      upper_bounds = []; *)
-  (*      level = 0; *)
-  (*      uid = 0}) *)
-  (*   (\* (Primitive PrimBool) *\) *)
-  (*   (Context.singleton "not" *)
-  (*      (SimpleTypeScheme (Function (Primitive PrimBool, Primitive PrimBool)))); *)
+  (* canonTest "int_func" *)
+  (*   cscheme_id_func *)
+  (*   (Function *)
+  (*      (Variable unbound_var, *)
+  (*       Variable unbound_var)); *)
 
-(*   (\* Integer Literals *\) *)
-(*   typeTest "integer1"   (Int 0)      (Primitive PrimInt); *)
-(*   typeTest "integer2"   (Int 54)     (Primitive PrimInt); *)
-(*   typeTest "integer3"   (Int (-10))  (Primitive PrimInt); *)
-
-(*   (\* Variables in a Dummy Context *\)  *)
-(*   (let context = (Context.empty *)
-(*                   |> Context.add "x" (SimpleTypeScheme (Primitive PrimInt))) *)
-(*                   in *)
-(*   typeTestCtx "variable" (Var "x") (Primitive PrimInt) context); *)
-
-(*   (\* Operators with Primitives *\) *)
-(*   typeTest "op_add_simple" *)
-(*     (Op (Add, Int 0, Int 2)) *)
-(*     (Primitive PrimInt); *)
-(*   typeTest "op_geq_simple" *)
-(*     (Op (Gre, Int 0, Int 3)) *)
-(*     (Primitive PrimBool); *)
-(*   typeTest "op_and_simple" *)
-(*     (Op (And, Bool true, Bool false)) *)
-(*     (Primitive PrimBool); *)
     ]
 
 let _ = run_test_tt_main tests

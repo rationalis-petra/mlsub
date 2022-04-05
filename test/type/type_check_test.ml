@@ -79,8 +79,12 @@ let tests = "test suite for typing" >::: [
 
   (* This test is to check whether the bounds are correctly applied: *) 
   typeTest "fun_plus"
-    (Fun ("x", Op (Add, Var "x", Var "x")))
+    (Fun ("x", Op (Add, Var "x", Int 3)))
     (Function (Variable tv1, Primitive PrimInt));
+
+  (* typeTest "fun_apply" *)
+  (*   (Fun ("x", Op (Add, Var "x", Var "x"))) *)
+  (*   (Function (Variable tv1, Primitive PrimInt)); *)
     ]
 
 let _ = run_test_tt_main tests
