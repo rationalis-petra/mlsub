@@ -427,7 +427,6 @@ module CompactTypeScheme = struct
           match (PolVarMap.find_opt (v0, Positive) !co_occurences,
                  PolVarMap.find_opt (v0, Negative) !co_occurences) with
           | (Some _, None) | (None, Some _) ->
-             print_endline ("[removing type-variable]" ^ vst_to_str v0);
              var_subst := VarMap.add v0 None !var_subst;
           | occ -> assert (occ != (None, None)))
     !all_vars;

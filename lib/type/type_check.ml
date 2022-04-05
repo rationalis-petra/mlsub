@@ -123,14 +123,12 @@ let rec constrain (lhs: simple_type) (rhs: simple_type) =
             2. That the second's fields are cconstrained to be a
                subtype of the firsts' *)
       | (Record fs0, Record fs1) ->
-         let _ = 
-           List.map (fun (name1, type1) ->
-               match List.find_opt (fun (name0, _) -> name0 = name1) fs0 with
-               | Some (_, type0) -> cconstrain type0 type1
-               | None -> err ("missing field: " ^ name1
-                              ^ " when subtyping "
-                              ^ string_of_simple_type lhs)) fs1 in
-         ()
+         List.iter (fun (name1, type1) ->
+             match List.find_opt (fun (name0, _) -> name0 = name1) fs0 with
+             | Some (_, type0) -> cconstrain type0 type1
+             | None -> err ("missing field: " ^ name1
+                            ^ " when subtyping "
+                            ^ string_of_simple_type lhs)) fs1
 
       (* The tricky bits come when there's variables on the left
             or right, as this means that we have to carefully
@@ -144,14 +142,10 @@ let rec constrain (lhs: simple_type) (rhs: simple_type) =
             Otherwise, we will make use of the extrude funcion... TODO *)
       | (Variable lhs, _) when lhs.level >= level (SimpleTypeScheme rhs) ->
          lhs.upper_bounds <- rhs :: lhs.upper_bounds;
-         let _ = 
-           List.map (swap cconstrain rhs) lhs.lower_bounds in
-         ()
+         List.iter (swap cconstrain rhs) lhs.lower_bounds
       | (_, Variable rhs) when level (SimpleTypeScheme lhs) <= rhs.level ->
          rhs.lower_bounds <- lhs :: rhs.lower_bounds;
-         let _ =
-           List.map (cconstrain lhs) rhs.upper_bounds in
-         ()
+         List.iter (cconstrain lhs) rhs.upper_bounds
 
       | (Variable lhv, rhs) ->
          (* extrude returns a copy of the problematic (level-violating) type
@@ -162,7 +156,7 @@ let rec constrain (lhs: simple_type) (rhs: simple_type) =
       | (lhs, Variable rhv) ->
          let lhs' = extrude lhs Positive rhv.level (ref PolCache.empty) in
          cconstrain lhs' rhs
-      | _ -> err ("cannot cconstrain " ^ (string_of_simple_type lhs)
+      | _ -> err ("cannot constrain " ^ (string_of_simple_type lhs)
                   ^ " <: " ^ (string_of_simple_type rhs))
   in cconstrain lhs rhs
 
@@ -252,9 +246,9 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
      have an input type which is at least the argument, and a fresh
      result type. Then, return the return type *) 
   | P.Apply (func, arg) ->
-     let ret_type = Variable (fresh_var lvl) in
      let func_type = typecheck func ctx lvl in
      let arg_type = typecheck arg ctx lvl in
+     let ret_type = Variable (fresh_var lvl) in
      constrain func_type (Function (arg_type, ret_type));
      ret_type
 
@@ -299,8 +293,6 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
           name
           (PolymorphicTypeScheme (lvl, val_t))
           ctx)
-          (* (mkTScheme (module PolymorphicTypeScheme) *)
-          (*    (PolymorphicTypeScheme.mkpt lvl val_t)) ctx) *)
        lvl
 
   (* Recursive Let Binding*)
@@ -311,10 +303,6 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
        (Context.add
           name
           (PolymorphicTypeScheme (lvl, val_t))
-
-          (* (mkTScheme *)
-          (*    (module PolymorphicTypeScheme) *)
-          (*    (PolymorphicTypeScheme.mkpt lvl val_t)) *)
           ctx)
        lvl
 

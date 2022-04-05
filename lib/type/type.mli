@@ -13,7 +13,7 @@ type mlsub_type
 
 and primitive_type = PrimInt | PrimBool
 
-val infer_type : raw_expr -> Data.mlsub_type
+val infer_type : ?prtest:bool -> raw_expr -> Data.mlsub_type
 
 val string_of_type : Data.mlsub_type -> string
 

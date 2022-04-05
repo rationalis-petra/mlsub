@@ -234,16 +234,16 @@ module CompPolVar : CompPolVarT
   end
 
 
-module CSet = Set.Make(
-                  struct
-                    type t = simple_type * simple_type
+module CSet = Set.Make(CompSimpleProd)
+                  (* struct *)
+                  (*   type t = simple_type * simple_type *)
 
-                    let compare (t11, t12) (t21, t22) = 
-                      if (CompSimple.compare t11 t21) = 0 then
-                        0
-                      else
-                        CompSimple.compare t12 t22
-                  end)
+                  (*   let compare (t11, t12) (t21, t22) =  *)
+                  (*     if (CompSimple.compare t11 t21) = 0 then *)
+                  (*       0 *)
+                  (*     else *)
+                  (*       CompSimple.compare t12 t22 *)
+                  (* end) *)
 
 module SimpleSet = Set.Make(CompSimple)
 module VarStateSet = Set.Make(CompVarSt)
