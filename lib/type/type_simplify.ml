@@ -2,9 +2,9 @@ open Data
 
 
 module SMap = Map.Make(String)
-
 let rec reduce_option f = function
   | [] -> None
+  | [x] -> Some x
   | x :: xs -> Option.map (fun y -> f x y) (reduce_option f xs)
 
 (* Given a function to merge two values of 'a and two options of 'a, either:
@@ -19,8 +19,9 @@ let option_merge (f: 'a -> 'a -> 'a )
   | (None, None) -> None
 
 
-let merge_map (f: 'a -> 'b -> 'c) : 'a SMap.t -> 'b SMap.t -> 'c SMap.t =
-  SMap.merge (fun _ -> (option_merge f))
+let merge_map (f: 'a -> 'a -> 'a) : 'a SMap.t -> 'a SMap.t -> 'a SMap.t =
+  SMap.merge (fun _ x y -> (option_merge f x y))
+
 
 let rec collect (f : 'a -> 'b option) l =
   match l with
@@ -107,15 +108,13 @@ module CompactType = struct
     let recd : (compact_type SMap.t) option
       = option_merge
                 (fun lrec rrec ->
-                  if pol = Positive then
-                    (* TODO: same semantics both of & else branches?? *) 
-                    SMap.merge (fun _ v1 v2 ->
-                        (* TODO: this may be an error!!!  options for y/empty
-                           empty type? *)
-                        option_merge (fun x y -> merge pol x y) v1 v2)
-                      lrec rrec
-                  else
-                    merge_map (merge pol) lrec rrec)
+                  match pol with
+                  | Positive -> 
+                     SMap.filter_map
+                       (fun k v ->
+                         Option.map (merge pol v) (SMap.find_opt k rrec))
+                       lrec
+                  | Negative -> merge_map (merge pol) lrec rrec)
                 lhs.rcd rhs.rcd in
     let funcn = option_merge
                 (fun (l0, r0) (l1, r1) ->
@@ -269,7 +268,6 @@ module CompactTypeScheme = struct
                                            | _ -> None) bounds)) in
          {empty with vars = tvs} in
 
-    (* TODO: the bug boi somewhere in here!! *)
     (* Run after go_outer, go_inner merges the bounds of all type variables *)
     let rec go1 (ty: CompactType.t) (pol : polarity) (in_process : CPTSet.t) = 
       let pty = (ty, pol) in
@@ -291,12 +289,14 @@ module CompactTypeScheme = struct
                  (List.map
                     (fun tv ->
                       let bounds = match pol with
-                        | Positive -> tv.lower_bounds
+                        | Positive -> 
+                           tv.lower_bounds
                         | Negative -> tv.upper_bounds in
                       List.map (function
                           | Variable _ -> empty
                           | b -> go_outer b pol) bounds)
                     (List.of_seq (VarSet.to_seq ty.vars)))) in
+               
           (* Bound is a compact type whose value corresponds to merging either
            * the upper bounds or lower bounds of tv, depending on polarity *)
           let bound = match bound1 with

@@ -6,11 +6,16 @@ let typeTest name expr mlsub_type =
   name >:: (fun _ -> assert_equal mlsub_type (infer_type expr))
 
 let typeTestPrint name expr mlsub_type = 
-  let ty = (infer_type ~prtest:true expr) in
+  let ty = (infer_type expr) in
   print_endline (string_of_type ty);
   print_endline (string_of_type mlsub_type);
   name >:: (fun _ -> assert_equal mlsub_type ty)
 
+let typeTestPrintAll name expr mlsub_type = 
+  let ty = (infer_type ~prtest:true expr) in
+  print_endline (string_of_type ty);
+  print_endline (string_of_type mlsub_type);
+  name >:: (fun _ -> assert_equal mlsub_type ty)
 
 
 let tests = "test suite for global typing" >::: [
@@ -32,13 +37,15 @@ let tests = "test suite for global typing" >::: [
         (FunctionType (Top , PrimitiveType PrimInt));
 
 
-      typeTestPrint "func_id_apply"
+      typeTest "func_id_apply"
         (Apply (Fun ("x", Var "x"), Int 32))
         (PrimitiveType PrimInt);
 
-      (* typeTestPrint "func_application" *)
-      (*   (Apply (Fun ("x", Op (Add, Var "x", Int 3)), Int 3)) *)
-      (*   (PrimitiveType PrimInt); *)
+      typeTest "func_higer_order_input"
+        (Fun ("x", Apply (Var "x", Int 32)))
+        (FunctionType
+           (FunctionType (PrimitiveType PrimInt, VariableType "ɑ1"),
+           (VariableType "ɑ1")));
 
 
   (* Variables in a Dummy Context *)

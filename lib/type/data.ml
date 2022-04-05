@@ -70,6 +70,7 @@ let rec string_of_simple_type : simple_type -> string = function
        | st :: [] -> (string_of_simple_type st) ^ "]"
        | st :: xs -> (string_of_simple_type st) ^ (tostr_helper xs) in
        "[" ^ (tostr_helper stlist) in
+     "Variable " ^
      "{lower_bounds = " ^ (stlist_to_string lower_bounds) ^ ";\n" ^
        "upper_bounds = " ^ (stlist_to_string upper_bounds) ^ ";\n" ^
          "level = " ^ (string_of_int level) ^ ";\n" ^
@@ -90,7 +91,8 @@ let rec string_of_type : mlsub_type -> string = function
   | Bottom -> "⊥"
   | Union (t1, t2) -> (string_of_type t1) ^ "⊔" ^ (string_of_type t2)
   | Intersection (t1, t2) -> (string_of_type t1) ^ "⊓" ^ (string_of_type t2)
-  | FunctionType (t1, t2) ->  (string_of_type t1) ^ "→" ^ (string_of_type t2)
+  | FunctionType (t1, t2) ->  "(" ^ (string_of_type t1) ^ "→" ^ (string_of_type
+                                                                   t2) ^ ")"
   | RecordType lst -> 
      "{" ^ (List.fold_left
               (fun str (lab, t) ->
