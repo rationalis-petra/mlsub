@@ -390,12 +390,6 @@ module CompactTypeScheme = struct
                          rec_vars :=
                            VarUidMap.add tv (fun () -> go_later ()) !rec_vars;
                          (* ignore (go_later ()); *)
-
-
-                        (* let rec go_later () = *)
-                        (*   rec_vars := VarUidMap.add tv (fun () -> go_later ()) !rec_vars; *)
-                        (*   go b pol () in *)
-                        (* ignore (go_later ()) *)
           | None -> ()
 
         )
@@ -426,7 +420,7 @@ module CompactTypeScheme = struct
      * position, then we can replace it with Top (Bottom) by removing it   *)
     NegVarUidSet.iter
       (fun v0 ->
-        if VarUidMap.mem v0 !rec_vars then
+        if not (VarUidMap.mem v0 !rec_vars) then
           match (PolVarMap.find_opt (v0, Positive) !co_occurences,
                  PolVarMap.find_opt (v0, Negative) !co_occurences) with
           | (Some _, None) | (None, Some _) ->
@@ -469,14 +463,17 @@ module CompactTypeScheme = struct
                         | None ->
                            (* This has to be defined; otherwise we'd have removed
                             * it in the variable substitution phase!*)
+                           (match PolVarMap.find_opt (w, inv pol) !co_occurences
+                            with
+                            | Some _ -> ()
+                            | None -> print_endline "bad w, inv pol");
                            let w_co_ocss = PolVarMap.find (w, inv pol)
                                              !co_occurences in
-                           
                            let inplace = (PolVarMap.find (v, inv pol) !co_occurences)
                            in
 
                            inplace := (SimpleSet.filter (fun t ->
-                                           CompSimple.compare t (Variable v) = 0 ||
+                                           (CompSimple.compare t (Variable v) = 0) ||
                                                 SimpleSet.mem t !w_co_ocss)
                                          !(PolVarMap.find (v, inv pol) !
                                              co_occurences))))

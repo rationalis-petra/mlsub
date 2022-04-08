@@ -56,7 +56,7 @@ let basic_tests = "basic test suite for global typing" >::: [
            (Function (Primitive PrimInt, a1),
            (a1)));
 
-      typeTest "func_higher_order_polymorphic"
+      typeTestPrint "func_higher_order_polymorphic"
         (Fun ("f", Fun ("x", Apply (Var "f", Apply (Var "f", Var "x")))))
         (Function
            (Function (Union (a1, a3), a3),
@@ -72,7 +72,7 @@ let record_tests = "record test suite for global typing" >::: [
 
 (* TODO: seems to infinite loop?!*)
 let recursion_tests = "recursion test suite for global typing" >::: [
-      typeTestPrintSeq "basic_self_application"
+      typeTest "basic_self_application"
       (Fun ("x", Apply (Var "x", Var "x")))
       (Function (Intersection (a0, (Function (a0, a1))), a1));
     ]
