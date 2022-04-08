@@ -16,32 +16,20 @@ let tests = "test suite for parsing" >::: [
   (* Variables *)
   parseTest "variable"              (Var "x") "x";
   parseTest "variable_capital"      (Var "Avar") "Avar";
-  parseTest "variable_with_keyword" (Var "xlet") "xlet";
+  parseTest "variable_with_keyword" (Var "letx") "letx";
   parseTest "variable_with_bool"    (Var "xtrue") "xtrue";
   parseTest "variable_with_int"     (Var "x23") "x23";
+  (* Accesses *)
+  parseTest "access"              (Access "x") "#x";
+  parseTest "access_capital"      (Access "Avar") "#Avar";
+  parseTest "access_with_keyword" (Access "letx") "#letx";
+  parseTest "access_with_bool"    (Access "xtrue") "#xtrue";
+  parseTest "access_with_int"     (Access "x23") "#x23";
 
-  (* "variable_with_reserved" >>: (fun _ -> assert_raises ParseFailure  ) *)
-  (*   (Var "then") *)
-  (*   "x23"; *)
   (* Variables *)
   parseTest "paren_var" (Var "x") "(x)";
   parseTest "paren_int" (Int 10) "(10)";
 
-  parseTest "accessor"   (Access "x") "#x";
-
-  (* RECORDS *)
-  parseTest "record_simple"
-    (Record [("x", (Int 1)); ("y", (Int 2))])
-    "{x = 1, y = 2}";
-  parseTest "record_spacing1"
-    (Record [("x", (Int 1)); ("y", (Int 2))])
-    "{  x =  1  ,  y   = 2  }";
-  parseTest "record_spacing2"
-    (Record [("x", (Int 1)); ("y", (Int 2))])
-    "{x=1,y=2}";
-  (* parseTest "record_cmplx" *)
-  (*   (Record [("x", (Int 1)); ("y", (Int 2))]) *)
-  (*   "{x=if x the y else z,y=2}"; *)
 
   (* BINARY EXPRESSIONS *)
   parseTest "bin_simple"
@@ -108,14 +96,40 @@ let tests = "test suite for parsing" >::: [
     (Let ("x", Bool true, Var "x"))
     "let x = true in x";
 
-  (* Complex Let Expression: Parenthesised Expression *)
-  parseTest "let_complex_paren_assign"
+  (* Making the assigned expression more complex: *)
+  parseTest "let_binop_assign"
+    (Let ("f",
+          Op (Add, Int 45, Int 12), 
+          Var "f"))
+    "let f = (45 + 12) in f";
+  parseTest "let_paren_assign"
     (Let ("f",
           Int 10,
           Var "f"))
     "let f = (10) in f";
+  parseTest "let_let_assign"
+    (Let ("f",
+          Let ("x", Int 3, Var "x"),
+          Var "f"))
+    "let f = let x = 3 in x in f";
+  parseTest "let_fun_assign"
+    (Let ("f",
+          Let ("x", Int 3, Var "x"),
+          Var "f"))
+    "let f = let x = 3 in x in f";
+  parseTest "let_if_assign"
+    (Let ("f",
+          If (Op (Eql, Var "x", Int 3), Var "x", Int 0),
+          Var "f"))
+    "let f = if x = 3 then x else 0 in f";
+  parseTest "let_fun_assign"
+    (Let ("f",
+          Fun ("y", Op (Eql, Var "y", Int 10)),
+          Var "f"))
+    "let f = fun y -> y = 10 in f";
 
-  parseTest "let_complex_body"
+  (* Making the body more complex *)
+  parseTest "let_binop_body"
     (Let ("f",
           Int 10,
           Op (Add, Var "f", Int 12)))
@@ -144,11 +158,18 @@ let tests = "test suite for parsing" >::: [
   parseTest "fun_simple"
     (Fun ("x", Var "x"))
     "fun x -> x";
-
-  (* Lambda Expression *)
-  parseTest "fun_complex"
+  parseTest "fun_binop"
     (Fun ("x", Op(Add, Var "x", Int 2)))
     "fun x -> x + 2";
+  parseTest "fun_let"
+    (Fun ("x", Let ("y", Int 3, Op (Add, Var "x", Var "y"))))
+    "fun x -> let y = 3 in x + y";
+  parseTest "fun_fun"
+    (Fun ("x", Fun ("y", Op (Add, Var "x", Var "y"))))
+    "fun x -> fun y -> x + y";
+  parseTest "fun_rcd"
+    (Fun ("x", Fun ("y", Record ["x", Var "x"; "y", Var "y"])))
+    "fun x -> fun y -> {x = x, y = y}";
 
   (* Function Application *)
   parseTest "app_simple"
@@ -170,11 +191,40 @@ let tests = "test suite for parsing" >::: [
           (Apply (Var "f", Var "y")),
           (Apply (Var "x", Var "z"))))
     "let x = f y in x z";
-  parseTest "app_in_rcd"
+
+  (* RECORDS *)
+  parseTest "record_simple"
+    (Record [("x", (Int 1)); ("y", (Int 2))])
+    "{x = 1, y = 2}";
+  parseTest "record_spacing1"
+    (Record [("x", (Int 1)); ("y", (Int 2))])
+    "{  x =  1  ,  y   = 2  }";
+  parseTest "record_spacing2"
+    (Record [("x", (Int 1)); ("y", (Int 2))])
+    "{x=1,y=2}";
+  parseTest "record_spacing3"
+    (Record [("x", Var "x"); ("y", Var "y")])
+    "{x=x,y=y}";
+
+  (* Records containing expressions *)
+  parseTest "rcd_app"
     (Record
        ["x", (Apply (Var "f", Var "a"));
         "y", (Apply (Var "f", Var "b"))])
     "{x = f a, y = f b}";
+  parseTest "record_if"
+    (Record [("x", If (Var "x", Var"y", Var "z")); ("y", (Int 2))])
+    "{x=if x then y else z,y=2}";
+  parseTest "record_let"
+    (Record [("x", Let ("x", Int 3, Var "x")); ("y", (Int 2))])
+    "{x=let x = 3 in x,y=2}";
+  parseTest "record_binop1"
+    (Record [("x", Op (Add, Op (Mul, Int 2, Int 3), Int 4)); ("y", (Int 2))])
+    "{x= 2 * 3 + 4,y=2}";
+  parseTest "record_binop2"
+    (Record [("y", (Int 2)); ("x", Op (Add, Op (Mul, Int 2, Int 3), Int 4))])
+    "{y=2, x= 2 * 3 + 4}";
+
     ]
 
 
