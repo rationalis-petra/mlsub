@@ -56,7 +56,7 @@ let basic_tests = "basic test suite for global typing" >::: [
            (Function (Primitive PrimInt, a1),
            (a1)));
 
-      typeTestPrint "func_higher_order_polymorphic"
+      typeTest "func_higher_order_polymorphic"
         (Fun ("f", Fun ("x", Apply (Var "f", Apply (Var "f", Var "x")))))
         (Function
            (Function (Union (a1, a3), a3),

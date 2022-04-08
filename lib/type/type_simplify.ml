@@ -444,7 +444,6 @@ module CompactTypeScheme = struct
                           (not (VarMap.mem w !var_subst)) &&
                             ((VarUidMap.mem v !rec_vars) = (VarUidMap.mem w !rec_vars))
                      then
-                       print_endline (vst_to_str v);
                        (if (match (PolVarMap.find_opt (w, pol) !co_occurences)
                            with
                            | None -> false
@@ -463,10 +462,6 @@ module CompactTypeScheme = struct
                         | None ->
                            (* This has to be defined; otherwise we'd have removed
                             * it in the variable substitution phase!*)
-                           (match PolVarMap.find_opt (w, inv pol) !co_occurences
-                            with
-                            | Some _ -> ()
-                            | None -> print_endline "bad w, inv pol");
                            let w_co_ocss = PolVarMap.find (w, inv pol)
                                              !co_occurences in
                            let inplace = (PolVarMap.find (v, inv pol) !co_occurences)
