@@ -50,17 +50,17 @@ let invert = function
 exception RecLookup of string
 
 let coalesce_type (t : simple_type) = 
-  let recursive : (polar_variable, mlsub_type) Hashtbl.t  = Hashtbl.create 10 in 
+  let recursive : (polar_variable, MLSubType.t) Hashtbl.t  = Hashtbl.create 10 in 
   let rec go t polar in_process =
     match t with
     (* Primitive is the base case *)
-    | Primitive p -> PrimitiveType p
+    | Primitive p -> MLSubType.Primitive p
 
     (* Function & Record are the simple recursive cases *)
-    | Function (l, r) -> FunctionType ((go l (invert polar) in_process),
+    | Function (l, r) -> MLSubType.Function ((go l (invert polar) in_process),
                                        go r polar in_process)
     | Record xs ->
-       RecordType (List.map (fun (n, t) -> (n, go t polar in_process))
+       MLSubType.Record (List.map (fun (n, t) -> (n, go t polar in_process))
                      xs)
 
     (* Variable is where the real work happens *)
@@ -76,7 +76,7 @@ let coalesce_type (t : simple_type) =
             match Hashtbl.find_opt recursive vpol with
             | Some x -> x
             | None ->
-               let x = VariableType (fresh_var#unique_name ()) in
+               let x = MLSubType.Variable (fresh_var#unique_name ()) in
                Hashtbl.add recursive vpol x;
                x
           end
@@ -93,12 +93,12 @@ let coalesce_type (t : simple_type) =
        (* Now that that is done, combine all bound_types with either union or
           intersection, depending on polarity *)
           let mrg = match polar with
-                  | Positive -> (fun x y -> Union (x, y))
-                  | Negative -> (fun x y -> Intersection (x, y)) in
+                  | Positive -> (fun x y -> MLSubType.Union (x, y))
+                  | Negative -> (fun x y -> MLSubType.Intersection (x, y)) in
           let res = List.fold_left mrg (vst_to_mlsub_type v) bound_types in
        (* Finally, lookup this variable name in the recursive map *)
           match (Hashtbl.find_opt recursive vpol) with
-          | Some (VariableType n) -> RecursiveType(n, res)
+          | Some (MLSubType.Variable n) -> MLSubType.Recursive(n, res)
           | Some _ ->
              raise (RecLookup "non-variable type in recursive in type_coalesce")
           | None -> res

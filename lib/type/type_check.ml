@@ -5,6 +5,8 @@ module Context = Map.Make(String)
 
 
 
+
+
 (* A context which stores the type of a variable. Because this can be a simple *)
 (* type or polymorphic type, we wrap in a first-class module *)
 
@@ -208,6 +210,10 @@ and extrude (ty : simple_type) (pol : polarity) (lvl : int)
 (* This will give us the raw type information which we can later condense into 
    the actual MLsub types*)
 
+let constrain_test () =
+  let fv1 = Variable (fresh_var 0) in
+  let fv2 = Variable (fresh_var 0) in
+  constrain (Function (fv1, fv1)) (Function (fv2, fv1))
 
 let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type = 
   match raw_expr with
@@ -218,8 +224,6 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
   (* Type-checking a name relatively easy - just lookup that name in the context *)
   | P.Var name ->
      instantiate (Context.find name ctx) lvl
-     (* let open (val (Context.find name ctx) : TScheme) in *)
-     (* TypeScheme.instantiate this lvl *)
 
   (* Type-checking a record is also easy - just typecheck all the subexpressions *)
   | P.Record xs ->

@@ -6,10 +6,33 @@ type raw_expr = P.expr
 
 (* simple_type is the type inferred by the first stage of the type-checking
    algorithm *) 
-type primitive = PrimInt | PrimBool
+
+module PrimType = struct
+  type primitive_type = PrimInt | PrimBool
+end
+
+module MLSubType  = struct
+  open PrimType
+
+  type mlsub_type
+  = Top
+  | Bottom
+  | Union        of mlsub_type * mlsub_type
+  | Intersection of mlsub_type * mlsub_type
+  | Function     of mlsub_type * mlsub_type
+  | Record       of (string * mlsub_type) list
+  | Recursive    of string * mlsub_type
+  | Variable     of string
+  | Primitive    of primitive_type
+
+  type t = mlsub_type
+end
+
+open PrimType
+
 
 type simple_type
-  = Primitive of primitive 
+  = Primitive of primitive_type
   | Variable  of variable_state
   | Function  of simple_type * simple_type
   | Record    of (string * simple_type) list
@@ -30,19 +53,9 @@ let inv = function
 
 type polar_variable = variable_state * polarity 
 
-type mlsub_type
-  = Top
-  | Bottom
-  | Union         of mlsub_type * mlsub_type
-  | Intersection  of mlsub_type * mlsub_type 
-  | FunctionType  of mlsub_type * mlsub_type
-  | RecordType    of (string * mlsub_type) list
-  | RecursiveType of string * mlsub_type
-  | VariableType  of string
-  | PrimitiveType of primitive
 
 let vst_to_str (v : variable_state) : string = "ɑ" ^ string_of_int (v.uid)
-let vst_to_mlsub_type (v : variable_state) : mlsub_type = VariableType ("ɑ" ^ string_of_int (v.uid))
+let vst_to_mlsub_type (v : variable_state) : MLSubType.t = Variable ("ɑ" ^ string_of_int (v.uid))
 
 (* Utility functions *)
 let var_id_counter = ref 0
@@ -63,18 +76,18 @@ let string_of_primitive = function
 
 let rec string_of_simple_type : simple_type -> string = function
   | Primitive prim -> "Primitive " ^ string_of_primitive prim
-  | Variable {lower_bounds; upper_bounds; level; uid} ->
-     let stlist_to_string stlist = 
-       let rec tostr_helper = function 
-       | [] -> "]"
-       | st :: [] -> (string_of_simple_type st) ^ "]"
-       | st :: xs -> (string_of_simple_type st) ^ (tostr_helper xs) in
-       "[" ^ (tostr_helper stlist) in
-     "Variable " ^
-     "{lower_bounds = " ^ (stlist_to_string lower_bounds) ^ ";\n" ^
-       "upper_bounds = " ^ (stlist_to_string upper_bounds) ^ ";\n" ^
-         "level = " ^ (string_of_int level) ^ ";\n" ^
-           "uid = " ^ (string_of_int uid) ^ "}"
+  | Variable vst (* {lower_bounds; upper_bounds; level; uid} *) ->
+     (* let stlist_to_string stlist =  *)
+     (*   let rec tostr_helper = function  *)
+     (*   | [] -> "]" *)
+     (*   | st :: [] -> (string_of_simple_type st) ^ "]" *)
+     (*   | st :: xs -> (string_of_simple_type st) ^ (tostr_helper xs) in *)
+     (*   "[" ^ (tostr_helper stlist) in *)
+     "Variable " ^ vst_to_str vst
+     (* "{lower_bounds = " ^ (stlist_to_string lower_bounds) ^ ";\n" ^ *)
+     (*   "upper_bounds = " ^ (stlist_to_string upper_bounds) ^ ";\n" ^ *)
+     (*     "level = " ^ (string_of_int level) ^ ";\n" ^ *)
+     (*       "uid = " ^ (string_of_int uid) ^ "}" *)
   | Function (arg, res) -> "Function (" ^ string_of_simple_type arg ^ ", " ^
                           string_of_simple_type res ^ ")"
   | Record fields ->
@@ -86,21 +99,21 @@ let rec string_of_simple_type : simple_type -> string = function
               fields)
      ^ "}"
 
-let rec string_of_type : mlsub_type -> string = function
+let rec string_of_type : MLSubType.t -> string = function
   | Top -> "⊤"
   | Bottom -> "⊥"
   | Union (t1, t2) -> (string_of_type t1) ^ "⊔" ^ (string_of_type t2)
   | Intersection (t1, t2) -> (string_of_type t1) ^ "⊓" ^ (string_of_type t2)
-  | FunctionType (t1, t2) ->  "(" ^ (string_of_type t1) ^ "→" ^ (string_of_type
+  | Function (t1, t2) ->  "(" ^ (string_of_type t1) ^ "→" ^ (string_of_type
                                                                    t2) ^ ")"
-  | RecordType lst -> 
+  | Record lst -> 
      "{" ^ (List.fold_left
               (fun str (lab, t) ->
                 lab ^ ":" ^ (string_of_type t) ^ "," ^ str ) "" lst) ^
        "}"
-  | RecursiveType (var, t2) -> "μ" ^ var ^ "." ^ (string_of_type t2)
-  | VariableType s -> s
-  | PrimitiveType p -> string_of_primitive p
+  | Recursive (var, t2) -> "μ" ^ var ^ "." ^ (string_of_type t2)
+  | Variable s -> s
+  | Primitive p -> string_of_primitive p
 
 
 (* Use a functor to generate a set that stores the type simple_type *)
@@ -124,7 +137,7 @@ module type CompProdT =
   Comp with type t = X.t * Y.t
 
 module type CompPrimitiveT = sig (* CompT (struct type t = simple_type end) *)
-  type t = primitive
+  type t = primitive_type
   val compare : t -> t -> int
 end
 
@@ -164,11 +177,11 @@ end
 
 module rec CompPrimitive : CompPrimitiveT
   = struct
-  type t = primitive
+  type t = primitive_type
   let compare t1 t2 =
     match (t1, t2) with
     | (PrimBool, PrimBool) ->  0
-    | (PrimInt,  PrimInt)  ->  0
+    | (PrimInt , PrimInt)  ->  0
     | (PrimBool, PrimInt)  -> -1
     | (PrimInt , PrimBool) ->  1
   end

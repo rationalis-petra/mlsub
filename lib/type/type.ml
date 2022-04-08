@@ -1,18 +1,8 @@
 
 type raw_expr = Parse.expr
 
-type mlsub_type
-  = Top
-  | Bottom
-  | Union        of mlsub_type * mlsub_type
-  | Intersection of mlsub_type * mlsub_type
-  | Function     of mlsub_type * mlsub_type
-  | Record       of (string * mlsub_type) list
-  | Recursive    of string * mlsub_type
-  | Variable     of string
-  | Primitive    of primitive_type
-
-and primitive_type = PrimInt | PrimBool
+type mlsub_type = Data.MLSubType.t
+(* open Data.MLSubType *)
 
 let default_context = 
   let open Type_check in
@@ -34,6 +24,15 @@ let infer_type ?prtest:(prtest=false) expr =
   );
 
   Type_simplify.CompactTypeScheme.coalesce_compact_type simplified_t
+
+let infer_type_stepped expr =
+  (* Reset counter!! *)
+  Data.var_id_counter := 0;
+  let simple_t = Type_check.typecheck expr default_context 0 in
+  let compact_t = Type_simplify.CompactTypeScheme.canonicalize_type simple_t in
+  let simplified_t = Type_simplify.CompactTypeScheme.simplify_type compact_t in
+  print_endline ("simplified_t: " ^ Type_simplify.CompactTypeScheme.to_str simplified_t)
+  (* Type_simplify.CompactTypeScheme.coalesce_compact_type simplified_t *)
 
 let string_of_type = Data.string_of_type
 

@@ -87,4 +87,11 @@ let tests = "test suite for typing" >::: [
   (*   (Function (Variable tv1, Primitive PrimInt)); *)
     ]
 
+let rec_tests = "test suite for typechecking self-application" >::: [
+      typePrint "fun_self-app"
+        (Fun ("x", Apply (Var "x", Var "x")));
+        (* (Function (Variable tv0, Variable tv0)); *)
+    ]
+
 let _ = run_test_tt_main tests
+(* let _ = run_test_tt_main rec_tests *)

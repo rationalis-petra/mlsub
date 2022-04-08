@@ -51,8 +51,8 @@ let cscheme_intvar : CompactTypeScheme.t =
 
 let tests = "test suite for coalescing compact types" >::: [
   (* Leave primitive types 'untouched' *)
-  coalTest "prim_bool" cscheme_bool (PrimitiveType PrimBool);
-  coalTest "prim_int" cscheme_int (PrimitiveType PrimInt);
+  coalTest "prim_bool" cscheme_bool (MLSubType.Primitive PrimBool);
+  coalTest "prim_int" cscheme_int (MLSubType.Primitive PrimInt);
 
   (* Types with upper bounds should be that bound *)
   (* coalTestPrint "var_int" cscheme_intvar (PrimitiveType PrimInt); *)
