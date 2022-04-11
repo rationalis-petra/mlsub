@@ -265,6 +265,7 @@ module VarStateSet = Set.Make(CompVarSt)
 module PrimSet = Set.Make(CompPrimitive)
 module PolVarSet = Set.Make(CompPolVar)
 
+module SimpleMap = Map.Make(CompSimple)
 module PolVarMap = Map.Make(CompPolVar)
 module VarStateMap = Map.Make(CompVarSt)
 

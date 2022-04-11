@@ -1,53 +1,25 @@
-(* The AST module contains the expr type, as well as information on how to *)
-(* convert from the parser's expr type*)
-
-(* For debugging only! *)
-type flag_type = {assert_valid : bool ref}
-let flags =
-  {assert_valid = ref true}
-let ptr_size = 8
-
-module AST = struct
-  type pexpr = Parse.expr
-  type op = Parse.op
-
-  type expr
-    = Int of int
-    | Bool of bool
-    | Var of string
-    | Access of string
-    | Record of (string * expr) list
-    | Op of op * expr * expr
-    | If of expr * expr * expr
-    | Fun of string * expr
-    | Let of string * expr * expr
-    | Apply of expr * expr;;
-
-  let rec expr_of_pexpr = function
-    | Parse.Int i -> Int i
-    | Parse.Bool b -> Bool b
-    | Parse.Var s -> Var s
-    | Parse.Access s -> Access s
-    | Parse.Record fields ->
-       Record (List.map (fun (k, v) -> (k, expr_of_pexpr v)) fields)
-    | Parse.Op (op, e1, e2) -> Op (op, expr_of_pexpr e1, expr_of_pexpr e2)
-    | Parse.If (e1, e2, e3) ->
-       If (expr_of_pexpr e1, expr_of_pexpr e2, expr_of_pexpr e3)
-    | Parse.Let (var, e1, e2) ->
-       Let (var, expr_of_pexpr e2, expr_of_pexpr e1)
-    | Parse.LetRec (var, e1, e2) ->
-       Let (var, expr_of_pexpr e2, expr_of_pexpr e1)
-    | Parse.Fun (v, e) -> Fun (v, expr_of_pexpr e)
-    | Parse.Apply (e1, e2) ->
-       Apply (expr_of_pexpr e1, expr_of_pexpr e2)
-
-end
-
-open AST
 open Llvm
 open Data
+open Data.AST
+
+(* compiler switches *)
+type flag_type = {
+    assert_valid : bool ref; (* whether to use LLVM static analysis *)
+    record_impl : string ref (* which implementation of record polymorphism to *)
+  }
+let flags : flag_type =
+  { assert_valid = ref true;
+    record_impl = ref "global";
+
+  }
+
+(* global variables, some store the results of analysis; others contain *)
+(* potentially architecture-specific information *)
+let ptr_size = 8
+let universal_record : (int StrMap.t) ref = ref StrMap.empty
 
 exception CodeGenError of string
+let err msg = raise (CodeGenError msg)
 
 (* The String Map is the module used for a symbol-table *)
 
@@ -132,16 +104,18 @@ let rec codegen_expr expr symtable =
   | Var name ->
      (match StrMap.find_opt name symtable with
       | Some v -> v
-      | None -> raise (CodeGenError ("unknown variable name: " ^ name)))
+      | None -> err ("unknown variable name: " ^ name))
   (* return a function which takes a hasmap and returns required field *)
   | Access field ->
      (* the mk_field_access function returns a closure which accesses a record *)
+     (* codegen_access fields symtable *)
      let field_ll = get_field field in
      build_call mk_field_access [|field_ll|] "accesstmp" builder
 
   | Record fields ->
      (* Record generation is relatively easy; create the record then call the
      requisite number of record insertions*) 
+     (* codegen_record fields symtable *)
      let num_fields = const_int int_type (List.length fields) in
      let record = build_call mk_record [|num_fields|] "recordtmp" builder in
      List.iter (fun (field, value) ->
@@ -417,8 +391,32 @@ and codegen_closure name argname body symtable =
   build_ptrtoint closure_ptr int_type "closure_as_int" builder
 
 
-let codegen_program expr =
+and codegen_record _ _ =
+  match !(flags.record_impl) with
+  | "hashmap" -> ()
+  | "universal" -> ()
+  | _ -> err ("unrecognised record implementation: " ^ !(flags.record_impl))
 
+and codegen_access _ =
+  match !(flags.record_impl) with
+  | "hashmap" -> ()
+  | "universal" -> ()
+  | _ -> err ("unrecognised record implementation: " ^ !(flags.record_impl))
+
+let codegen_program expr =
+  (* Possibly perform some analysis dependent on record_imple *)
+  if !(flags.record_impl) == "universal" then
+    begin
+    (* get a set of all record labels, then enumerate them *)
+    let labels = Analysis.calc_uni_record expr in 
+    let (_, rcd_map) =
+      StrSet.fold
+        (fun lbl (idx, map) -> (idx + 1, StrMap.add lbl idx map))
+        labels
+        (0, StrMap.empty) in
+    universal_record := rcd_map
+    end;
+    
   (* Generate a function handle for main *)
   let main_type =
     let i32_t = i32_type context in

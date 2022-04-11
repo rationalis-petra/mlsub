@@ -13,5 +13,5 @@ val init : unit -> unit
 (* val get_code_ir : unit -> string *)
 
 module Internal : sig
-  module AST = Compile.AST
+  module AST = Data.AST
 end

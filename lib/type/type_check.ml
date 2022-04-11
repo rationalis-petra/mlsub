@@ -24,7 +24,7 @@ let rec instantiate tscheme lvl =
      freshen_above level body lvl
 
 and freshen_above lim ty lvl = 
-  let freshened : (simple_type, simple_type) Hashtbl.t = Hashtbl.create 10 in
+  let freshened : (simple_type SimpleMap.t) ref = ref SimpleMap.empty in
   let rec freshen (ty : simple_type) : simple_type =
     if level (SimpleTypeScheme ty) <= lim then
       ty
@@ -32,14 +32,15 @@ and freshen_above lim ty lvl =
       match ty with
       | Variable tv ->
          begin
-           match Hashtbl.find_opt freshened (freshen_above lim ty lvl) with
-           | Some x -> x
+           match SimpleMap.find_opt ty !freshened  with
+           | Some tv -> tv
            | None ->
               let vr = Variable (fresh_var lvl) in
               match vr with
               | Variable v ->
                  begin
-                   Hashtbl.add freshened ty vr;
+                   freshened := SimpleMap.add ty vr (!freshened);
+                   (* Hashtbl.add freshened ty vr; *)
                    v.lower_bounds <- List.rev
                                        (List.map freshen
                                           (List.rev (tv.lower_bounds)));
@@ -210,11 +211,6 @@ and extrude (ty : simple_type) (pol : polarity) (lvl : int)
 (* This will give us the raw type information which we can later condense into 
    the actual MLsub types*)
 
-let constrain_test () =
-  let fv1 = Variable (fresh_var 0) in
-  let fv2 = Variable (fresh_var 0) in
-  constrain (Function (fv1, fv1)) (Function (fv2, fv1))
-
 let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type = 
   match raw_expr with
   (* Type checking primitives is relatively easy *)
@@ -223,7 +219,11 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
 
   (* Type-checking a name relatively easy - just lookup that name in the context *)
   | P.Var name ->
-     instantiate (Context.find name ctx) lvl
+     (match (Context.find_opt name ctx) with
+      | Some ty ->
+         let out = instantiate ty lvl in
+         out
+      | None -> err ("unbound variable " ^ name ^ " in context"))
 
   (* Type-checking a record is also easy - just typecheck all the subexpressions *)
   | P.Record xs ->
@@ -300,14 +300,22 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
        lvl
 
   (* Recursive Let Binding*)
-  | P.LetRec (name, e1, bod) ->
-     let val_t = typecheck e1 ctx (lvl + 1) in
-     typecheck
+  (* Process slightly differently; expecting the bound term to appear in the
+     value to be bound, not just the body *)
+  | P.LetRec (name, lhs, bod) ->
+     let expr_ty = Variable (fresh_var (lvl + 1)) in
+     let val_t = typecheck lhs (Context.add name
+                                 (SimpleTypeScheme expr_ty)
+                                 ctx)
+                   (lvl + 1) in
+     constrain val_t expr_ty;
+     let out = typecheck
        bod
        (Context.add
           name
-          (PolymorphicTypeScheme (lvl, val_t))
+          (PolymorphicTypeScheme (lvl, expr_ty))
           ctx)
-       lvl
+       lvl in
+     out
 
 let infer_simple_type raw_expr = typecheck raw_expr Context.empty 0

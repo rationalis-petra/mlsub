@@ -470,8 +470,7 @@ module CompactTypeScheme = struct
                            inplace := (SimpleSet.filter (fun t ->
                                            (CompSimple.compare t (Variable v) = 0) ||
                                                 SimpleSet.mem t !w_co_ocss)
-                                         !(PolVarMap.find (v, inv pol) !
-                                             co_occurences))))
+                                         !inplace)))
                            
                  | Primitive atom ->
                     (match Option.map (fun x -> SimpleSet.mem (Primitive atom) !x)

@@ -8,7 +8,7 @@ let typeTest name expr mlsub_type =
   name >:: (fun _ -> assert_equal mlsub_type (infer_type expr))
 
 let typeTestPrint name expr mlsub_type = 
-  let ty = (infer_type expr) in
+  let ty = (infer_type ~prtest:true expr) in
   print_endline (string_of_type ty);
   print_endline (string_of_type mlsub_type);
   name >:: (fun _ -> assert_equal mlsub_type ty)
@@ -16,7 +16,7 @@ let typeTestPrint name expr mlsub_type =
 let typeTestPrintSeq name (expr : P.expr) _ =
   let _ = (infer_type_stepped expr) in
   (* print_endline (string_of_type ty); *)
-  (* print_endline (string_of_type mlsub_type); *)
+  (* print_endline (string_of_type ty); *)
   name >:: (fun _ -> assert_equal true true)
 
 let a0 = Variable "ɑ0"
@@ -61,8 +61,25 @@ let basic_tests = "basic test suite for global typing" >::: [
         (Function
            (Function (Union (a1, a3), a3),
            (Function (a1, a3))));
-
     ]
+
+let bool_tests = "boolean test suite for global typing" >::: [
+    typeTest "bool_fun1"
+      (* fun x -> fun y -> fun z -> if x then y else z*)
+      (* bool -> a -> a -> a*)
+    (Fun ("x", Fun("y", Fun("z", If (Var "x", Var "y", Var"z")))))
+    (Function (Primitive PrimBool, Function (a3, Function (a3, a3))));
+
+    typeTest "bool_fun2"
+      (* "fun x -> fun y -> if x then y else x" *)
+      (*   "'a ⊓ bool -> 'a -> 'a" *)
+    (Fun ("x", Fun("y", If (Var "x", Var "y", Var "x"))))
+    (Function (Intersection (a2, Primitive PrimBool), Function (a2, a2)));
+
+
+
+
+  ]
 
 let record_tests = "record test suite for global typing" >::: [
       typeTest "record_access"
@@ -70,15 +87,24 @@ let record_tests = "record test suite for global typing" >::: [
       (Function (Record [("x", a0)], a0))
     ]
 
-(* TODO: seems to infinite loop?!*)
-let recursion_tests = "recursion test suite for global typing" >::: [
+let self_app_tests = "self-application test suite for global typing" >::: [
       typeTest "basic_self_application"
       (Fun ("x", Apply (Var "x", Var "x")))
       (Function (Intersection (a0, (Function (a0, a1))), a1));
     ]
 
+(* TODO: this is causing not-found errors!! *)
+let recursion_tests = "recursion test suite for global typing" >::: [
+      typeTestPrint "basic_self_application" 
+        (* doTest("let rec f = fun x -> f x.u in f", *)
+        (*   "{u: 'a} as 'a -> ⊥") *)
+      (LetRec ("f", Fun ("x",  Apply  (Var "f", Var "x")), Var "f" ))
+      (Function (Intersection (a0, (Function (a0, a1))), a1));
+    ]
 
 
 let _ = run_test_tt_main basic_tests
+let _ = run_test_tt_main bool_tests
 let _ = run_test_tt_main record_tests
+let _ = run_test_tt_main self_app_tests
 let _ = run_test_tt_main recursion_tests

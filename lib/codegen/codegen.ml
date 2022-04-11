@@ -1,14 +1,14 @@
 
-type expr = Compile.AST.expr
+type expr = Data.AST.expr
 
-let expr_of_pexpr = Compile.AST.expr_of_pexpr
+let expr_of_pexpr = Data.AST.expr_of_pexpr
 
 let codegen_program = Compile.codegen_program
 
 let init () = ()
 
 module Internal = struct
-  module AST = Compile.AST
+  module AST = Data.AST
 end
 
 
