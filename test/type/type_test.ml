@@ -8,7 +8,7 @@ let typeTest name expr mlsub_type =
   name >:: (fun _ -> assert_equal mlsub_type (infer_type expr))
 
 let typeTestPrint name expr mlsub_type = 
-  let ty = (infer_type ~prtest:true expr) in
+  let ty = (infer_type ~prtest:false expr) in
   print_endline (string_of_type ty);
   print_endline (string_of_type mlsub_type);
   name >:: (fun _ -> assert_equal mlsub_type ty)
@@ -93,13 +93,24 @@ let self_app_tests = "self-application test suite for global typing" >::: [
       (Function (Intersection (a0, (Function (a0, a1))), a1));
     ]
 
+let poly_tests = "tests for let polymorphism " >::: [
+      typeTest "basic_let_poly"
+        (Let ("f", Fun ("x", Var "x"), Record [("a", Apply (Var "f", Int 0))
+                                             ; ("b", Apply (Var "f", Bool true))]))
+        (Record [("a", Primitive PrimInt); ("b", Primitive PrimBool)])
+    ]
+
 (* TODO: this is causing not-found errors!! *)
 let recursion_tests = "recursion test suite for global typing" >::: [
-      typeTestPrint "basic_self_application" 
-        (* doTest("let rec f = fun x -> f x.u in f", *)
-        (*   "{u: 'a} as 'a -> ⊥") *)
-      (LetRec ("f", Fun ("x",  Apply  (Var "f", Var "x")), Var "f" ))
-      (Function (Intersection (a0, (Function (a0, a1))), a1));
+      (* typeTestPrint "basic_self_application" *)
+      (*   (\* doTest("let rec f = fun x -> f x.u in f", *\) *)
+      (*   (\*   "{u: 'a} as 'a -> ⊥") *\) *)
+      (* (LetRec ("f", Fun ("x",  Apply  (Var "f", Apply (Access "u", Var "x"))), Var "f" )) *)
+      (* (Recursive ("ɑ0", Function (a0, Bottom))) *)
+
+      typeTestPrint "recursive_2"
+      (LetRec ("f", Fun ("x", Var "f"), Var "f"))
+      (Recursive ("ɑ5", Function (Top, Variable "ɑ5")))
     ]
 
 
@@ -107,4 +118,5 @@ let _ = run_test_tt_main basic_tests
 let _ = run_test_tt_main bool_tests
 let _ = run_test_tt_main record_tests
 let _ = run_test_tt_main self_app_tests
+let _ = run_test_tt_main poly_tests
 let _ = run_test_tt_main recursion_tests

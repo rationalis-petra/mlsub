@@ -271,3 +271,26 @@ module VarStateMap = Map.Make(CompVarSt)
 
 
 
+
+let rec vst_to_str_rec (v : variable_state) (s : VarStateSet.t) : string =
+  let print_bounds bounds = 
+    let news = VarStateSet.add v s in
+    List.fold_left  (fun str ty ->  str ^ string_of_simple_type_rec ty news) "" bounds in
+  if VarStateSet.mem v s then vst_to_str v
+  else (vst_to_str v) ^ "{" ^ print_bounds v.lower_bounds ^ " | " ^ print_bounds v.upper_bounds
+  ^ "}"
+
+and string_of_simple_type_rec (ty : simple_type) (s : VarStateSet.t) : string = 
+  match ty with
+  | Primitive prim -> "Primitive " ^ string_of_primitive prim
+  | Variable vst -> "Variable " ^ vst_to_str_rec vst s
+  | Function (arg, res) -> "Function (" ^ string_of_simple_type_rec arg s ^ ", " ^
+                             string_of_simple_type_rec res s ^ ")"
+  | Record fields ->
+     "{" ^ (List.fold_left
+              (fun str (f,t) ->
+                f ^ " : " ^ string_of_simple_type_rec t s ^ ";" ^ str
+              )
+              ""
+              fields)
+     ^ "}"

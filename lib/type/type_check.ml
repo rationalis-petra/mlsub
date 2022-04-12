@@ -279,7 +279,6 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
   (* As with operators, the if statement can be typechecked in a manner similar
      to a function: constrain the first argument to be a bool, and the latter
      arguments should be the same type *)
-  (* TODO: is this corrcet??? *)
 
   | P.If (e0, e1, e2) -> 
      let body_type = Variable (fresh_var lvl) in
@@ -313,7 +312,7 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
        bod
        (Context.add
           name
-          (PolymorphicTypeScheme (lvl, expr_ty))
+          (PolymorphicTypeScheme (lvl, val_t))
           ctx)
        lvl in
      out

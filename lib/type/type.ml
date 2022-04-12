@@ -1,5 +1,5 @@
 
-type raw_expr = Parse.expr
+type iraw_expr = Parse.expr
 
 type mlsub_type = Data.MLSubType.t
 (* open Data.MLSubType *)
@@ -18,7 +18,7 @@ let infer_type ?prtest:(prtest=false) expr =
   let compact_t = Type_simplify.CompactTypeScheme.canonicalize_type simple_t in
   let simplified_t = Type_simplify.CompactTypeScheme.simplify_type compact_t in
   if prtest then (
-    print_endline ("simple_t: " ^ Data.string_of_simple_type simple_t);
+    print_endline ("simple_t: " ^ Data.string_of_simple_type_rec simple_t Data.VarStateSet.empty);
     print_endline ("compact_t: " ^ Type_simplify.CompactTypeScheme.to_str compact_t);
     print_endline ("simplified_t: " ^ Type_simplify.CompactTypeScheme.to_str simplified_t);
   );

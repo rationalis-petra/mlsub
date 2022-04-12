@@ -66,6 +66,26 @@ module CompactType = struct
                                 (to_str y))
                          func) ^ "]}"
 
+  let rec to_str_r {vars; prims; rcd; func} s = 
+    let set_fold_str val_to_str v str  = 
+      (val_to_str v) ^ "," ^ str  in
+    let opt_to_str val_to_str = function
+      | Some x -> "Some (" ^ (val_to_str x) ^ ")"
+      | None -> "None" in
+    "{vars = [" ^ (VarStateSet.fold (set_fold_str (fun v -> vst_to_str_rec v s)) vars "]\n") ^
+      "prims = [" ^
+        (PrimSet.fold (set_fold_str string_of_primitive) prims "]\n") ^
+          "rcd = [" ^ (opt_to_str
+                        (fun x ->
+                          SMap.fold
+                            (fun nam v str ->
+                              nam ^ ":" ^ (to_str_r v s) ^ "," ^ str)
+                            x "]\n") rcd) ^ "]\n" ^
+            "func = [" ^ (opt_to_str
+                            (fun (x, y) ->
+                              (to_str_r x s) ^ " -> " ^
+                                (to_str_r y s))
+                         func) ^ "]}"
 
   (* Shorthand for use outside the module *)
   type t = compact_type
@@ -160,14 +180,14 @@ module CompactTypeScheme = struct
     | n -> n
 
     
-
-  let to_str cts =  
-    "{term : " ^ CompactType.to_str cts.term ^ 
+  let to_str cts = 
+    "{term : " ^ CompactType.to_str_r cts.term VarStateSet.empty ^ 
       "\nrec_vars: " ^
-        (VarMap.fold
-           (fun _ _ b -> "var" ^ b) (* s ^ CompactType.compact_type_to_str a ^ b) *)
+        (VarMap.fold (* (vs -> a -> b -> b) -> 'a VarMap -> 'b *)
+           (fun var v b -> (vst_to_str var) ^ CompactType.to_str v ^ " ->" ^ b) (* s ^ CompactType.compact_type_to_str a ^ b) *)
            cts.rec_vars
            "") ^ "}"
+
 
   let map_of_rcd (f : 'a -> 'b) (lst : (string * 'a) list) = 
     SMap.of_seq (List.to_seq (List.map (fun (key, value) ->
@@ -238,6 +258,7 @@ module CompactTypeScheme = struct
             rec_vars := VarMap.add v bound !rec_vars;
             {empty with vars = VarStateSet.singleton v} 
          | None -> bound in
+
 
     { term = go ty Positive VarSet.empty PVarSet.empty;
       rec_vars = !rec_vars }
@@ -318,8 +339,8 @@ module CompactTypeScheme = struct
              {empty with vars = VarSet.singleton v}
           | None -> adapted in
 
-    {term = go1 (go_outer ty Positive) Positive CPTSet.empty;
-     rec_vars = !rec_vars} 
+    let res_term =  go1 (go_outer ty Positive) Positive CPTSet.empty
+    in {term = res_term; rec_vars = !rec_vars}
 
   
   (* The simplify_type function relies on two ideas: 
@@ -380,16 +401,13 @@ module CompactTypeScheme = struct
               co_occurences := PolVarMap.add (tv, pol) (ref new_occs) !co_occurences);
           match VarMap.find_opt tv cty.rec_vars with
           | Some b -> if not (VarUidMap.mem tv !rec_vars) then
-           (* TODO: Check if Lazy keyword impacts semantics...*)
                          (*Potential bug here*)
                          let rec go_later : unit -> CompactType.t =
                            (fun () ->
                              rec_vars :=
                                VarUidMap.add tv (fun () -> go_later ()) !rec_vars;
                              go b pol ()) in
-                         rec_vars :=
-                           VarUidMap.add tv (fun () -> go_later ()) !rec_vars;
-                         (* ignore (go_later ()); *)
+                         (ignore (go_later ()));
           | None -> ()
 
         )
@@ -449,28 +467,30 @@ module CompactTypeScheme = struct
                            | None -> false
                            | Some s -> SimpleSet.mem (Variable v) !s)
                         then
-                          var_subst := VarMap.add w (Some v) !var_subst);
-                       (match VarUidMap.find_opt w !rec_vars with
-                        | Some b_w ->
-                           assert(not (PolVarMap.mem (w, inv pol) !co_occurences));
-                           rec_vars := VarUidMap.remove w !rec_vars;
-                           let b_v = VarUidMap.find v !rec_vars in
-                           rec_vars := VarUidMap.add v
-                                         (fun () ->
-                                           CompactType.merge pol (b_v ()) (b_w ()))
-                                         !rec_vars
-                        | None ->
-                           (* This has to be defined; otherwise we'd have removed
-                            * it in the variable substitution phase!*)
-                           let w_co_ocss = PolVarMap.find (w, inv pol)
-                                             !co_occurences in
-                           let inplace = (PolVarMap.find (v, inv pol) !co_occurences)
-                           in
+                          begin
+                          var_subst := VarMap.add w (Some v) !var_subst;
+                          match VarUidMap.find_opt w !rec_vars with
+                          | Some b_w ->
+                             assert(not (PolVarMap.mem (w, inv pol) !co_occurences));
+                             rec_vars := VarUidMap.remove w !rec_vars;
+                             let b_v = VarUidMap.find v !rec_vars in
+                             rec_vars := VarUidMap.add v
+                                           (fun () ->
+                                             CompactType.merge pol (b_v ()) (b_w ()))
+                                           !rec_vars
+                          | None ->
+                             (* This has to be defined; otherwise we'd have removed
+                              * it in the variable substitution phase!*)
+                             let w_co_ocss = PolVarMap.find (w, inv pol)
+                                               !co_occurences in
+                             let inplace = (PolVarMap.find (v, inv pol) !co_occurences)
+                             in
 
-                           inplace := (SimpleSet.filter (fun t ->
-                                           (CompSimple.compare t (Variable v) = 0) ||
-                                                SimpleSet.mem t !w_co_ocss)
-                                         !inplace)))
+                             inplace := (SimpleSet.filter (fun t ->
+                                             (CompSimple.compare t (Variable v) = 0) ||
+                                               SimpleSet.mem t !w_co_ocss)
+                                           !inplace)
+                          end))
                            
                  | Primitive atom ->
                     (match Option.map (fun x -> SimpleSet.mem (Primitive atom) !x)
@@ -483,7 +503,9 @@ module CompactTypeScheme = struct
              (Option.map (!) (PolVarMap.find_opt (v, pol) !co_occurences)))
             pols))
       !all_vars;
-    {term = gone ();
+
+    let res_term = gone () in
+    {term = res_term;
      rec_vars = VarMap.map (fun f -> f ())
                   (VarMap.of_seq (VarUidMap.to_seq !rec_vars))}
 
