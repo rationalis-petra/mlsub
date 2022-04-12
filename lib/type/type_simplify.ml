@@ -401,7 +401,6 @@ module CompactTypeScheme = struct
               co_occurences := PolVarMap.add (tv, pol) (ref new_occs) !co_occurences);
           match VarMap.find_opt tv cty.rec_vars with
           | Some b -> if not (VarUidMap.mem tv !rec_vars) then
-                         (*Potential bug here*)
                          let rec go_later : unit -> CompactType.t =
                            (fun () ->
                              rec_vars :=
