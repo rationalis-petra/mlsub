@@ -10,13 +10,13 @@ type flag_type = {
 let flags : flag_type =
   { assert_valid = ref true;
     record_impl = ref "global";
-
   }
 
 (* global variables, some store the results of analysis; others contain *)
 (* potentially architecture-specific information *)
 let ptr_size = 8
 let universal_record : (int StrMap.t) ref = ref StrMap.empty
+let universal_accesses : (llvalue StrMap.t) ref = ref StrMap.empty
 
 exception CodeGenError of string
 let err msg = raise (CodeGenError msg)
@@ -105,25 +105,9 @@ let rec codegen_expr expr symtable =
      (match StrMap.find_opt name symtable with
       | Some v -> v
       | None -> err ("unknown variable name: " ^ name))
-  (* return a function which takes a hasmap and returns required field *)
-  | Access field ->
-     (* the mk_field_access function returns a closure which accesses a record *)
-     (* codegen_access fields symtable *)
-     let field_ll = get_field field in
-     build_call mk_field_access [|field_ll|] "accesstmp" builder
 
-  | Record fields ->
-     (* Record generation is relatively easy; create the record then call the
-     requisite number of record insertions*) 
-     (* codegen_record fields symtable *)
-     let num_fields = const_int int_type (List.length fields) in
-     let record = build_call mk_record [|num_fields|] "recordtmp" builder in
-     List.iter (fun (field, value) ->
-         let val_ll = codegen_expr value symtable in 
-         let key = get_field field in
-         ignore (build_call set_field [|record; key; val_ll|] "" builder)
-       ) fields;
-     record
+  | Access field -> codegen_access field
+  | Record fields -> codegen_record fields symtable
 
   | Op (op, e1, e2) -> 
      let lhs = codegen_expr e1 symtable in
@@ -258,33 +242,33 @@ and codegen_proto (name, args) =
 
 (* codegen_func generates a new toplevel function with a given argument-list *)
 (* and body*)
-and codegen_func ((name, args), body) = 
-  (* Generate a function handle (prototype) *)
-  let func_handle = codegen_proto (name, args) in
-  (* Create a new basic block to start insertion into. *)
-  let bb = append_block context "entry" func_handle in
-  position_at_end bb builder;
-  try
-    let symtable =
-      StrMap.of_seq (Array.to_seq 
-                       (Util.arr_zip
-                          (Array.map (fun (x, _) -> x) args)
-                          (params func_handle))) in 
-    let ret_val = codegen_expr body symtable in
+(* and codegen_func ((name, args), body) =  *)
+(*   (\* Generate a function handle (prototype) *\) *)
+(*   let func_handle = codegen_proto (name, args) in *)
+(*   (\* Create a new basic block to start insertion into. *\) *)
+(*   let bb = append_block context "entry" func_handle in *)
+(*   position_at_end bb builder; *)
+(*   try *)
+(*     let symtable = *)
+(*       StrMap.of_seq (Array.to_seq  *)
+(*                        (Util.arr_zip *)
+(*                           (Array.map (fun (x, _) -> x) args) *)
+(*                           (params func_handle))) in  *)
+(*     let ret_val = codegen_expr body symtable in *)
 
-    (* Finish off the function. *)
-    let _ = build_ret ret_val builder in
+(*     (\* Finish off the function. *\) *)
+(*     let _ = build_ret ret_val builder in *)
 
-    (* Validate the generated code, checking for consistency. *)
-    (if !(flags.assert_valid) then
-       Llvm_analysis.assert_valid_function func_handle
-     else
-       ());
+(*     (\* Validate the generated code, checking for consistency. *\) *)
+(*     (if !(flags.assert_valid) then *)
+(*        Llvm_analysis.assert_valid_function func_handle *)
+(*      else *)
+(*        ()); *)
 
-    func_handle
-  with e ->
-    delete_function func_handle;
-    raise e
+(*     func_handle *)
+(*   with e -> *)
+(*     delete_function func_handle; *)
+(*     raise e *)
 
 (* Codegen closure will:
  * 1. Generate an array representing the environment
@@ -378,9 +362,7 @@ and codegen_closure name argname body symtable =
   ignore (build_ret compiled_body builder);
 
   (if !(flags.assert_valid) then
-     Llvm_analysis.assert_valid_function func_handle
-   else
-     ());
+     Llvm_analysis.assert_valid_function func_handle);
 
   (* Switch back to generating code in the original basic block *)
   position_at_end current_bb builder;
@@ -391,21 +373,81 @@ and codegen_closure name argname body symtable =
   build_ptrtoint closure_ptr int_type "closure_as_int" builder
 
 
-and codegen_record _ _ =
+and codegen_record fields symtable =
   match !(flags.record_impl) with
-  | "hashmap" -> ()
-  | "universal" -> ()
+  | "hashmap" ->
+     (* Record generation is relatively easy; create the record then call the
+        requisite number of record insertions*) 
+     let num_fields = const_int int_type (List.length fields) in
+     let record = build_call mk_record [|num_fields|] "recordtmp" builder in
+     List.iter (fun (field, value) ->
+         let val_ll = codegen_expr value symtable in 
+         let key = get_field field in
+         ignore (build_call set_field [|record; key; val_ll|] "" builder)
+       ) fields;
+     record
+  | "global" ->
+     let record_size = StrMap.fold (fun _ _ n -> n + 1) (!universal_record) 0 in
+     let record = build_array_malloc int_type (const_int int_type record_size)
+                    "record" builder in
+     let record_int  = build_ptrtoint record int_type "record_as_int" builder in
+     List.iter (fun (field, value) ->
+         let val_ll = codegen_expr value symtable in
+         let idx = StrMap.find field !universal_record in
+         let idx_lli = build_add record_int (const_int int_type idx) "fieldtmpi" builder in
+         let idx_llp = build_inttoptr idx_lli int_type "fieldtmpp" builder in
+         ignore (build_store val_ll idx_llp builder))
+       fields;
+     record_int
   | _ -> err ("unrecognised record implementation: " ^ !(flags.record_impl))
 
-and codegen_access _ =
+and codegen_access field =
   match !(flags.record_impl) with
-  | "hashmap" -> ()
-  | "universal" -> ()
+  | "hashmap" ->
+     let field_ll = get_field field in
+     build_call mk_field_access [|field_ll|] "accesstmp" builder
+  | "global" -> 
+     (* Start by checking the cache to see if we've already generated a field access function *)
+     (match StrMap.find_opt field !universal_accesses with
+      | Some x -> x
+      | None ->
+         begin
+     (* We need to actually generate the function... *)
+         let current_bb = insertion_block builder in
+         let access_handle =
+           codegen_proto (gen_unique_name ()
+                        , [|("rcd", int_type); ("env", int_ptr_type)|]) in
+
+         let bb = append_block context "entry" access_handle in
+         position_at_end bb builder;
+
+         let idx_ll = const_int int_type (StrMap.find field !universal_record) in
+
+         let arg = Array.get (params access_handle) 0 in
+         let idx_int = build_add idx_ll arg "idx_int" builder in
+         let idx_ptr = build_inttoptr idx_int int_ptr_type "idx_ptr" builder in
+         let ret_val = build_load idx_ptr "ret_field" builder in
+         ignore (build_ret ret_val builder);
+
+
+         (if !(flags.assert_valid) then
+            Llvm_analysis.assert_valid_function access_handle);
+         position_at_end current_bb builder; 
+
+         let closure_ptr = build_array_malloc int_type
+                 (const_int int_type 1)
+                 "closure_env" builder in
+
+         let access_as_int = build_ptrtoint access_handle int_type "func_as_int" builder in
+         ignore (build_store access_as_int closure_ptr builder);
+         build_ptrtoint closure_ptr int_type "closure_as_int" builder
+
+         end)
   | _ -> err ("unrecognised record implementation: " ^ !(flags.record_impl))
 
 let codegen_program expr =
   (* Possibly perform some analysis dependent on record_imple *)
-  if !(flags.record_impl) == "universal" then
+  if !(flags.record_impl) == "global" then
     begin
     (* get a set of all record labels, then enumerate them *)
     let labels = Analysis.calc_uni_record expr in 

@@ -10,7 +10,8 @@ exception Err of string
 
 (* Use the Command Module for CLI parsing *)
 
-let rec compile mode in_filename out_filename format =
+let rec compile mode in_filename out_filename format rcd_impl =
+  Codegen.set_record_impl rcd_impl;
   let parse = 
     file_to_str >>
     Parse.expr_of_string >>
@@ -66,12 +67,17 @@ let out_format =
             "Bitcode, Assembly or Binary" in
   Arg.(value & opt string "bitcode" & info ["f"; "format"] ~docv:"FORMAT" ~doc)
 
+let rec_impl = 
+  let doc = "The name of the record implementation mechanism to use: can be hashmap," ^
+            "global or evidence. Default value is global" in
+  Arg.(value & opt string "global" & info ["r"; "record"] ~docv:"RECORD" ~doc)
+
 let mode = 
   let doc = "The desired action to perform: parse, typecheck or compile " ^
             "Default is compile" in
   Arg.(value & opt string "compile" & info ["m"; "mode"] ~docv:"MODE" ~doc)
 
-let compile_t = Term.(const compile $ mode $ in_filename $ out_filename $ out_format)
+let compile_t = Term.(const compile $ mode $ rec_impl $ in_filename $ out_filename $ out_format)
 
 
 let info =
