@@ -1,6 +1,6 @@
 open Angstrom
 
-type op = Add | Sub | Mul | Div | Gre | Eql | And | Or ;;
+type op = Add | Sub | Mul | Div | Les | Gre | Eql | And | Or ;;
 
 type expr
   = Int of int
@@ -23,6 +23,7 @@ let string_of_op = function
   | Sub -> "Sub"     
   | Mul -> "Mul"     
   | Div -> "Div"
+  | Les -> "Les"
   | Gre -> "Gre"
   | Eql -> "Eql"
   | And -> "And"
@@ -60,7 +61,7 @@ let rec string_of_expr =
                                    soe e2 ^ ")"
   | LetRec (var, e1, e2) -> "LetRec(" ^ var ^ ", " ^
                                soe e1 ^ ", " ^
-                                   soe e2 ^ "("
+                                   soe e2 ^ ")"
   | Fun (var, e) -> "Fun (" ^ var ^ ", " ^ soe e ^ ")"
 
   | Apply (e1, e2) -> "Apply (" ^ soe e1 ^ ", " ^ soe e2 ^ ")"
@@ -124,6 +125,7 @@ let pAdd = mkBinParser "+" Add
 let pSub = mkBinParser "-" Sub
 let pMul = mkBinParser "*" Mul
 let pDiv = mkBinParser "/" Div
+let pLes = mkBinParser "<" Les
 let pGre = mkBinParser ">" Gre
 let pEql = mkBinParser "=" Eql
 let pAnd = mkBinParser "and" And
@@ -195,7 +197,7 @@ let pBinary expr : expr t =
   let factor = choice [(parens expr); pInteger; pBool; pAccess; pVar] in
   let term   = mkBin factor (pMul <|> pDiv) in
   let arith  = mkBin term (pAdd <|> pSub) in
-  let logic  = mkBin arith (pGre <|> pEql) in
+  let logic  = mkBin arith (pGre <|> pEql <|> pLes) in
   mkBin logic (pAnd <|> pOr)
 
 let pIf expr : expr t =

@@ -1,5 +1,5 @@
 
-type op = Add | Sub | Mul | Div | Gre | Eql | And | Or ;;
+type op = Add | Sub | Mul | Div | Les | Gre | Eql | And | Or ;;
 
 type expr
   = Int of int
@@ -15,6 +15,8 @@ type expr
   | Apply of expr * expr;;
 
 val string_of_expr : expr -> string
+
+val string_of_op : op -> string
 
 val expr_of_string : string -> expr
 

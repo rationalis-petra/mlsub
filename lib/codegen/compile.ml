@@ -2,59 +2,8 @@ open Llvm
 open Data
 open Data.AST
 
-(* compiler switches *)
-type flag_type = {
-    assert_valid : bool ref; (* whether to use LLVM static analysis *)
-    record_impl : string ref (* which implementation of record polymorphism to *)
-  }
-let flags : flag_type =
-  { assert_valid = ref true;
-    record_impl = ref "global";
-  }
+open Shared
 
-(* global variables, some store the results of analysis; others contain *)
-(* potentially architecture-specific information *)
-let ptr_size = 8
-let universal_record : (int StrMap.t) ref = ref StrMap.empty
-let universal_accesses : (llvalue StrMap.t) ref = ref StrMap.empty
-
-exception CodeGenError of string
-let err msg = raise (CodeGenError msg)
-
-(* The String Map is the module used for a symbol-table *)
-
-(* The set of used function names *)
-let func_names = ref StrSet.empty
-let lambda_counter = ref 0
-
-(* Lambdas are converted to global functions! hence, we need to make sure that *)
-(* we generate unique names for them *)
-let gen_unique_name () = 
-  let name = ref ("lambda" ^ string_of_int !lambda_counter) in
-  while StrSet.mem !name !func_names do
-    lambda_counter := !lambda_counter + 1;
-    name := "lambda" ^ string_of_int !lambda_counter
-  done;
-   !name
-
-
-(* Initialisation *)
-(* context *)
-let context = global_context ()
-(* module: create the module and set the target triple (x86) *)
-let the_module = create_module context "MLSub"
-let () = set_target_triple "x86_64-pc-linux-gnu" the_module
-let builder = builder context
-
-(* CODEGEN TYPES *)
-(* Prime type: cast to get other types *)
-let bool_type = i1_type context
-let int_type = i64_type context
-let int_ptr_type = pointer_type int_type
-
-(* Closures (lambdas) *)
-let closure_fn_type = function_type int_type [|int_type; int_ptr_type|]
-let closure_fn_ptr_type = pointer_type closure_fn_type
 
 (* Declare external functions: *)
 let global_decls = [|("printi", function_type int_type [|int_type|]);
@@ -108,36 +57,27 @@ let rec codegen_expr expr symtable =
 
   | Access field -> codegen_access field
   | Record fields -> codegen_record fields symtable
-
-  | Op (op, e1, e2) -> 
-     let lhs = codegen_expr e1 symtable in
-     let rhs = codegen_expr e2 symtable in
-     (* For boolean operations, we must first cast int -> bool, then bool ->
-      * int *)
-     let build_bop build_fn lhs rhs name builder = 
-       let lhs_as_bool = build_bitcast lhs bool_type "blhstmp" builder in
-       let rhs_as_bool = build_bitcast rhs bool_type "brhstmp" builder in
-       let out = build_fn lhs_as_bool rhs_as_bool name builder in
-       build_bitcast out int_type "outtmp" builder in
-     (* For comparison operations, we must cast the result (bool) to int  *)
-     let build_intcmp cmptype lhs rhs name builder = 
-       let out = build_icmp cmptype lhs rhs name builder in
-       build_bitcast out int_type "outtmp" builder in
-     (match op with
-      | Add -> build_add  lhs rhs "addtmp" builder
-      | Sub -> build_sub  lhs rhs "subtmp" builder
-      | Mul -> build_mul  lhs rhs "multmp" builder
-      | Div -> build_sdiv lhs rhs "divtmp" builder
-      | Gre -> build_intcmp Icmp.Sge lhs rhs "gretmp" builder
-      | Eql -> build_intcmp Icmp.Eq lhs rhs "eqltmp" builder
-      | And -> build_bop build_and lhs rhs "andtmp" builder
-      | Or  -> build_bop build_or lhs rhs "ortmp"  builder)
-
-  | Let (var, body, var_expr) ->
+  | Op (op, e1, e2) -> codegen_op op e1 e2 symtable
+  | If (cond, e1, e2) -> codegen_if cond e1 e2 symtable
+  | Let (var, var_expr, body) ->
      let new_symtable = StrMap.add var (codegen_expr var_expr symtable)
                           symtable in
      let body_val = codegen_expr body new_symtable in
      body_val
+
+  | LetRec (var, Fun (inner_var, expr), body) ->
+     let num = (!lambda_counter) in
+     lambda_counter := num + 1;
+     let name = gen_unique_name () in
+     let func = codegen_closure (Some var) name inner_var expr symtable in
+
+     let new_symtable = StrMap.add var func symtable in
+     let body_val = codegen_expr body new_symtable in
+     body_val
+
+  | LetRec (v, e1, e2) ->
+     print_endline (string_of_expr (LetRec (v, e1, e2)));
+     err "Currently can only compile recursive functions"
 
 
   | Fun (var, expr) ->
@@ -147,7 +87,7 @@ let rec codegen_expr expr symtable =
      let num = (!lambda_counter) in
      (lambda_counter := num + 1;
       let name = gen_unique_name () in
-      let func = codegen_closure name var expr symtable in
+      let func = codegen_closure None name var expr symtable in
       func) 
 
   | Apply (e1, e2) ->
@@ -177,11 +117,35 @@ let rec codegen_expr expr symtable =
      build_call func args "calltmp" builder
 
 
+and codegen_op op e1 e2 symtable = 
+     let lhs = codegen_expr e1 symtable in
+     let rhs = codegen_expr e2 symtable in
+     (* For boolean operations, we must first cast int -> bool, then bool ->
+      * int *)
+     let build_bop build_fn lhs rhs name builder = 
+       let lhs_as_bool = build_intcast lhs bool_type "blhstmp" builder in
+       let rhs_as_bool = build_intcast rhs bool_type "brhstmp" builder in
+       let out = build_fn lhs_as_bool rhs_as_bool name builder in
+       build_intcast out int_type "outtmp" builder in
+     (* For comparison operations, we must cast the result (bool) to int  *)
+     let build_intcmp cmptype lhs rhs name builder = 
+       let out = build_icmp cmptype lhs rhs name builder in
+       build_intcast out int_type "outtmp" builder in
+     (match op with
+      | Add -> build_add  lhs rhs "addtmp" builder
+      | Sub -> build_sub  lhs rhs "subtmp" builder
+      | Mul -> build_mul  lhs rhs "multmp" builder
+      | Div -> build_sdiv lhs rhs "divtmp" builder
+      | Les -> build_intcmp Icmp.Slt lhs rhs "lestmp" builder
+      | Gre -> build_intcmp Icmp.Sge lhs rhs "gretmp" builder
+      | Eql -> build_intcmp Icmp.Eq lhs rhs "eqltmp" builder
+      | And -> build_bop build_and lhs rhs "andtmp" builder
+      | Or  -> build_bop build_or lhs rhs "ortmp"  builder)
 
-  | If (cond, e1, e2) ->
+and codegen_if cond e1 e2 symtable = 
      let cond_code = codegen_expr cond symtable in
      (* The output is in the form of an int64; we need to cast to bool *)
-     let cond_bool = build_bitcast cond_code bool_type "condtmp" builder in 
+     let cond_bool = build_intcast cond_code bool_type "condtmp" builder in
      let start_bb = insertion_block builder in
      let the_function = block_parent start_bb in
      let then_bb = append_block context "then" the_function in
@@ -211,65 +175,6 @@ let rec codegen_expr expr symtable =
 
      phi
 
-
-
-(* Much like in C/C++, we have functions declarations (in LLVM: prototypes)
- * that describe a function, e.g. i64 add (i64: a, i64: b). The function 
- * codegen_proto function is used to generate these prototypes given a name and 
- * a list of (argname, type) pairs. All functions have return type int_type *)
-
-and codegen_proto (name, args) = 
-  let type_arr = Array.map (fun (_, y) -> y) args in
-  let ft = function_type int_type type_arr in
-  let f =
-    match lookup_function name the_module with
-    | None -> declare_function name ft the_module
-    (* If 'f' conflicted, there was already something named 'name'. If it
-     * has a body, don't allow redefinition or reextern. *)
-    | Some f ->
-       (* If 'f' already has a body, reject this. *)
-       if Array.length (basic_blocks f) == 0 then () else
-         raise (CodeGenError "redefinition of function");
-
-       (* If 'f' took a different number of arguments, reject. *)
-       if Array.length (params f) == Array.length args then () else
-         raise (CodeGenError "redefinition of function with different # args");
-       f
-  in
-  f
-
-(* Generate code for a TOPLEVEL function. This is not for lambda functions! *)
-
-(* codegen_func generates a new toplevel function with a given argument-list *)
-(* and body*)
-(* and codegen_func ((name, args), body) =  *)
-(*   (\* Generate a function handle (prototype) *\) *)
-(*   let func_handle = codegen_proto (name, args) in *)
-(*   (\* Create a new basic block to start insertion into. *\) *)
-(*   let bb = append_block context "entry" func_handle in *)
-(*   position_at_end bb builder; *)
-(*   try *)
-(*     let symtable = *)
-(*       StrMap.of_seq (Array.to_seq  *)
-(*                        (Util.arr_zip *)
-(*                           (Array.map (fun (x, _) -> x) args) *)
-(*                           (params func_handle))) in  *)
-(*     let ret_val = codegen_expr body symtable in *)
-
-(*     (\* Finish off the function. *\) *)
-(*     let _ = build_ret ret_val builder in *)
-
-(*     (\* Validate the generated code, checking for consistency. *\) *)
-(*     (if !(flags.assert_valid) then *)
-(*        Llvm_analysis.assert_valid_function func_handle *)
-(*      else *)
-(*        ()); *)
-
-(*     func_handle *)
-(*   with e -> *)
-(*     delete_function func_handle; *)
-(*     raise e *)
-
 (* Codegen closure will:
  * 1. Generate an array representing the environment
  * 2. Generate a function which takes an argument and a context, corresponding
@@ -277,7 +182,7 @@ and codegen_proto (name, args) =
  * 3. Return a pointer to a (f, r) pair, where f is the generated function and r
  * is the generated record *)
 
-and codegen_closure name argname body symtable = 
+and codegen_closure recursive name argname body symtable = 
   (* Remember where in the code we were (relevant later) *)
   let current_bb = insertion_block builder in
 
@@ -293,9 +198,12 @@ and codegen_closure name argname body symtable =
        StrSet.union (get_free_vars e1) (get_free_vars e2)
     | Fun (v, bdy) ->
        StrSet.remove v (get_free_vars bdy)
-    | Let (v, e1, e2) -> 
+    | Let (v, e1, e2) | LetRec (v, e1, e2) -> 
        StrSet.remove v
          (StrSet.union (get_free_vars e1) (get_free_vars e2))
+    | If (e1, e2, e3) -> 
+       StrSet.union (get_free_vars e1)
+         (StrSet.union (get_free_vars e2) (get_free_vars e3))
     | Apply (e1, e2) ->
        StrSet.union (get_free_vars e1) (get_free_vars e2)
     | _ -> StrSet.empty in
@@ -303,8 +211,9 @@ and codegen_closure name argname body symtable =
   (* The variables we want to place in a context *)
   (* Note that the argument of the function may be in the set of free
    * variables, so we remove it *)
-  let ctx_vars = Array.of_seq
-                   (StrSet.to_seq (StrSet.remove argname (get_free_vars body))) in
+  let ctx_vars =
+    let ctx_varset = StrSet.remove argname (get_free_vars body) in
+    Array.of_seq (StrSet.to_seq ctx_varset) in
 
   (* Build the array representing the environment: first allocate, then insert
    * variables *)
@@ -314,9 +223,15 @@ and codegen_closure name argname body symtable =
   let closure_as_int = build_ptrtoint closure_ptr int_type "closure_as_int"
                          builder in
 
+  (* Recursive *)
+  let new_symtable =
+    match recursive with
+    | Some var -> StrMap.add var closure_as_int symtable
+    | None -> symtable in
+
   Array.iteri (fun _idx _var ->
-      let idx = codegen_expr (Int (_idx + ptr_size)) symtable in
-      let var = codegen_expr (Var _var) symtable in
+      let idx = codegen_expr (Int (_idx + ptr_size)) new_symtable in
+      let var = codegen_expr (Var _var) new_symtable in
       let closure_idx = build_add closure_as_int idx
                           "closure_idx" builder in
       let closure_idx_ptr = build_inttoptr closure_idx int_ptr_type
@@ -394,8 +309,8 @@ and codegen_record fields symtable =
      List.iter (fun (field, value) ->
          let val_ll = codegen_expr value symtable in
          let idx = StrMap.find field !universal_record in
-         let idx_lli = build_add record_int (const_int int_type idx) "fieldtmpi" builder in
-         let idx_llp = build_inttoptr idx_lli int_type "fieldtmpp" builder in
+         let idx_lli = build_add record_int (const_int int_type idx) "fieldtmp_int" builder in
+         let idx_llp = build_inttoptr idx_lli int_ptr_type "fieldtmp_ptr" builder in
          ignore (build_store val_ll idx_llp builder))
        fields;
      record_int
@@ -412,7 +327,7 @@ and codegen_access field =
       | Some x -> x
       | None ->
          begin
-     (* We need to actually generate the function... *)
+           (* We need to actually generate the function... *)
          let current_bb = insertion_block builder in
          let access_handle =
            codegen_proto (gen_unique_name ()
@@ -421,7 +336,7 @@ and codegen_access field =
          let bb = append_block context "entry" access_handle in
          position_at_end bb builder;
 
-         let idx_ll = const_int int_type (StrMap.find field !universal_record) in
+         let idx_ll = const_int int_type (StrMap.find field !universal_record) in 
 
          let arg = Array.get (params access_handle) 0 in
          let idx_int = build_add idx_ll arg "idx_int" builder in
@@ -429,9 +344,9 @@ and codegen_access field =
          let ret_val = build_load idx_ptr "ret_field" builder in
          ignore (build_ret ret_val builder);
 
-
          (if !(flags.assert_valid) then
             Llvm_analysis.assert_valid_function access_handle);
+
          position_at_end current_bb builder; 
 
          let closure_ptr = build_array_malloc int_type
@@ -440,14 +355,16 @@ and codegen_access field =
 
          let access_as_int = build_ptrtoint access_handle int_type "func_as_int" builder in
          ignore (build_store access_as_int closure_ptr builder);
-         build_ptrtoint closure_ptr int_type "closure_as_int" builder
-
+         let access_fnl = build_ptrtoint closure_ptr int_type "closure_as_int"
+                        builder in
+         universal_accesses := StrMap.add field access_fnl !universal_accesses;
+         access_fnl
          end)
   | _ -> err ("unrecognised record implementation: " ^ !(flags.record_impl))
 
 let codegen_program expr =
   (* Possibly perform some analysis dependent on record_imple *)
-  if !(flags.record_impl) == "global" then
+  if (!(flags.record_impl)) = "global" then
     begin
     (* get a set of all record labels, then enumerate them *)
     let labels = Analysis.calc_uni_record expr in 
@@ -456,7 +373,7 @@ let codegen_program expr =
         (fun lbl (idx, map) -> (idx + 1, StrMap.add lbl idx map))
         labels
         (0, StrMap.empty) in
-    universal_record := rcd_map
+    universal_record := rcd_map;
     end;
     
   (* Generate a function handle for main *)

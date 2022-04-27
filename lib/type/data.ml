@@ -77,17 +77,7 @@ let string_of_primitive = function
 let rec string_of_simple_type : simple_type -> string = function
   | Primitive prim -> "Primitive " ^ string_of_primitive prim
   | Variable vst (* {lower_bounds; upper_bounds; level; uid} *) ->
-     (* let stlist_to_string stlist =  *)
-     (*   let rec tostr_helper = function  *)
-     (*   | [] -> "]" *)
-     (*   | st :: [] -> (string_of_simple_type st) ^ "]" *)
-     (*   | st :: xs -> (string_of_simple_type st) ^ (tostr_helper xs) in *)
-     (*   "[" ^ (tostr_helper stlist) in *)
      "Variable " ^ vst_to_str vst
-     (* "{lower_bounds = " ^ (stlist_to_string lower_bounds) ^ ";\n" ^ *)
-     (*   "upper_bounds = " ^ (stlist_to_string upper_bounds) ^ ";\n" ^ *)
-     (*     "level = " ^ (string_of_int level) ^ ";\n" ^ *)
-     (*       "uid = " ^ (string_of_int uid) ^ "}" *)
   | Function (arg, res) -> "Function (" ^ string_of_simple_type arg ^ ", " ^
                           string_of_simple_type res ^ ")"
   | Record fields ->
@@ -250,15 +240,6 @@ module CompPolVar : CompPolVarT
 
 
 module CSet = Set.Make(CompSimpleProd)
-                  (* struct *)
-                  (*   type t = simple_type * simple_type *)
-
-                  (*   let compare (t11, t12) (t21, t22) =  *)
-                  (*     if (CompSimple.compare t11 t21) = 0 then *)
-                  (*       0 *)
-                  (*     else *)
-                  (*       CompSimple.compare t12 t22 *)
-                  (* end) *)
 
 module SimpleSet = Set.Make(CompSimple)
 module VarStateSet = Set.Make(CompVarSt)

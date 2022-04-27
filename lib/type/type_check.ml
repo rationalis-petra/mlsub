@@ -266,7 +266,7 @@ let rec typecheck raw_expr (ctx : ctx) (lvl: int) : simple_type =
           constrain (typecheck e0 ctx lvl) (Primitive PrimInt);
           constrain (typecheck e1 ctx lvl) (Primitive PrimInt);
           (Primitive PrimInt)
-       | Gre | Eql ->
+       | Les | Gre | Eql ->
           constrain (typecheck e0 ctx lvl) (Primitive PrimInt);
           constrain (typecheck e1 ctx lvl) (Primitive PrimInt);
           (Primitive PrimBool)

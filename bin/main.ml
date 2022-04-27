@@ -5,7 +5,7 @@ module StrMap = Map.Make(String)
 exception Err of string
 
 (* Notes to self *)
-(* Llvm.dump_value to convert llvalue -> string *)
+(* Llvm.dump_value  to convert llvalue -> string *)
 (* Llvm.dump_module to convert llvalue -> string *)
 
 (* Use the Command Module for CLI parsing *)
@@ -26,6 +26,10 @@ let rec compile mode in_filename out_filename format rcd_impl =
   let compile =
     file_to_str >>
     Parse.expr_of_string >>
+      (fun f -> (Type.infer_type >>
+                   Type.string_of_type >>
+                   (fun str -> "Program has type: " ^ str) >>
+                   print_endline) f; f) >>
     Codegen.expr_of_pexpr >>
     Codegen.codegen_program >>
            (fun m -> match format with
@@ -77,7 +81,7 @@ let mode =
             "Default is compile" in
   Arg.(value & opt string "compile" & info ["m"; "mode"] ~docv:"MODE" ~doc)
 
-let compile_t = Term.(const compile $ mode $ rec_impl $ in_filename $ out_filename $ out_format)
+let compile_t = Term.(const compile $ mode  $ in_filename $ out_filename $ out_format$ rec_impl)
 
 
 let info =
