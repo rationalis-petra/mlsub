@@ -1,6 +1,8 @@
 
-let rec fib =
-fun x ->
-  if x < 3 then 1 else
-    (fib (x - 1)) + (fib (x - 2)) in
-fib 5
+let rec bench =
+fun r ->
+  let x = #x r in
+  let y = #y r in
+  if x < 1 then y else bench {x = (x -1), y = y}
+in 
+bench {x = 1000000, y = 42}
