@@ -51,6 +51,7 @@ exception RecLookup of string
 
 let coalesce_type (t : simple_type) = 
   let recursive : (polar_variable, MLSubType.t) Hashtbl.t  = Hashtbl.create 10 in 
+
   let rec go t polar in_process =
     match t with
     (* Primitive is the base case *)
@@ -101,8 +102,42 @@ let coalesce_type (t : simple_type) =
           | Some (MLSubType.Variable n) -> MLSubType.Recursive(n, res)
           | Some _ ->
              raise (RecLookup "non-variable type in recursive in type_coalesce")
-          | None -> res
+          | None -> res in
+
+  let open Map.Make(String) in
+  let renaming : (string t) ref = ref empty in 
+  let counter = ref 0 in
+  let rec rename ty =
+    match ty with
+    | MLSubType.Top -> ty
+    | MLSubType.Bottom -> ty
+    | MLSubType.Primitive _ -> ty
+    | MLSubType.Intersection (t1, t2) ->
+       let new_t1 = rename t1 in
+       let new_t2 = rename t2 in
+       MLSubType.Intersection (new_t1, new_t2)
+    | MLSubType.Union (t1, t2) ->
+       let new_t1 = rename t1 in
+       let new_t2 = rename t2 in
+       MLSubType.Union (new_t1, new_t2)
+    | MLSubType.Function (t1, t2) ->
+       let new_t1 = rename t1 in
+       let new_t2 = rename t2 in
+       MLSubType.Function (new_t1, new_t2)
+    | MLSubType.Record lbls ->
+       MLSubType.Record (List.map (fun (lbl, v) -> (lbl, rename v)) lbls)
+    | MLSubType.Recursive (var, t) ->
+       let new_var = (string_of_int !counter) in
+       counter := !counter + 1;
+       renaming := add var new_var !renaming;
+       let new_t = rename t in
+       MLSubType.Recursive (new_var, new_t)
+    | MLSubType.Variable var ->
+       let new_var = (string_of_int !counter) in
+       counter := !counter + 1;
+       renaming := add var new_var !renaming;
+       MLSubType.Variable new_var
                          
-  in go t Positive PSet.empty
+  in rename (go t Positive PSet.empty)
   
 

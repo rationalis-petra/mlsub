@@ -11,7 +11,7 @@ module PrimType = struct
   type primitive_type = PrimInt | PrimBool
 end
 
-module MLSubType  = struct
+module MLSubType = struct
   open PrimType
 
   type mlsub_type
@@ -71,8 +71,8 @@ let fresh_var l =
 
 
 let string_of_primitive = function
-  | PrimInt -> "PrimInt"
-  | PrimBool -> "PrimBool"
+  | PrimInt -> "int"
+  | PrimBool -> "bool"
 
 let rec string_of_simple_type : simple_type -> string = function
   | Primitive prim -> "Primitive " ^ string_of_primitive prim
@@ -92,10 +92,23 @@ let rec string_of_simple_type : simple_type -> string = function
 let rec string_of_type : MLSubType.t -> string = function
   | Top -> "⊤"
   | Bottom -> "⊥"
+  | Union (Function (t1_, t2_), t2) ->
+     "(" ^ (string_of_type (Function (t1_, t2_))) ^ ")⊔" ^ (string_of_type t2)
+  | Union (t1, Function (t1_, t2_)) ->
+     (string_of_type t1) ^ "⊔(" ^ (string_of_type (Function (t1_, t2_))) ^ ")"
   | Union (t1, t2) -> (string_of_type t1) ^ "⊔" ^ (string_of_type t2)
+
+  | Intersection (Function (t1_, t2_), t2) ->
+     "(" ^ (string_of_type (Function (t1_, t2_))) ^ ")⊓" ^ (string_of_type t2)
+  | Intersection (t1, Function (t1_, t2_)) ->
+     (string_of_type t1) ^ "⊓(" ^ (string_of_type (Function (t1_, t2_))) ^ ")"
   | Intersection (t1, t2) -> (string_of_type t1) ^ "⊓" ^ (string_of_type t2)
-  | Function (t1, t2) ->  "(" ^ (string_of_type t1) ^ "→" ^ (string_of_type
-                                                                   t2) ^ ")"
+
+
+  | Function (Function (t1_, t2_), t2) ->
+     "(" ^ (string_of_type (Function (t1_, t2_))) ^ ")" ^
+       " → " ^ (string_of_type t2)
+  | Function (t1, t2) -> (string_of_type t1) ^ " → " ^ (string_of_type t2)
   | Record lst -> 
      "{" ^ (List.fold_left
               (fun str (lab, t) ->

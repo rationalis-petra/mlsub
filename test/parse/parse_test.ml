@@ -2,9 +2,13 @@ open Parse
 open OUnit2
 
 let parseTest name expr str = 
-  name >:: (fun _ -> assert_equal expr (expr_of_string str))
+  name >:: (fun _ -> assert_equal (Some expr) (expr_of_string_opt str))
 
-let tests = "test suite for parsing" >::: [
+let parseTestF name str = 
+  name >:: (fun _ ->
+    assert_equal None (expr_of_string_opt str))
+
+let success_tests = "test suite for parsing" >::: [
   (* Boolean Literals *)
   parseTest "bool_true"  (Bool true) "true";
   parseTest "bool_false" (Bool false) "false";
@@ -78,12 +82,21 @@ let tests = "test suite for parsing" >::: [
     (If (Int 1, Int 2, Int 7))
     "if 1 then 2 else 7";
 
+  parseTest "if_with_binop"
+    (If (Op (Add, Int 2, Int 3),
+         Op (Sub, Int 3, Int 5),
+         Op (And, Bool true, Bool false)))
+    "if 2 + 3 then 3 - 5 else true and false";
+  parseTest "if_with_app"
+    (If (Apply (Var "f", Var "x"),
+         Apply (Var "f", Var "y"),
+         Apply (Var "f", Var "z")))
+    "if f x then f y else f z";
   parseTest "if_complex1"
     (If (Op (Gre, Int 1, Op (Add, Int 2, Int 3)),
          Fun ("x", Op (Add, Var "x", Int 2)),
          If (Bool true, Int 2, Int 3)))
     "if 1 > 2 + 3 then fun x -> x + 2 else if true then 2 else 3";
-
   parseTest "if_complex2"
     (If (Op (Gre, Int 1, Op (Add, Int 2, Int 3)),
          Apply(Var "f", Int 3),
@@ -135,7 +148,7 @@ let tests = "test suite for parsing" >::: [
           Op (Add, Var "f", Int 12)))
     "let f = 10 in (f + 12)";
 
-  (* (\* Complex Let Expression: assign function to variable *\) *)
+  (* Complex Let Expression: assign function to variable *)
   parseTest "let_complex_fun"
     (Let ("f",
           Fun ("y", Op (Add, Var "y", Int 2)),
@@ -181,16 +194,23 @@ let tests = "test suite for parsing" >::: [
   parseTest "app_accessor"
     (Apply (Access "x", Var "rcd"))
     "#x rcd";
-  parseTest "app_in_if"
-    (If (Apply (Var "f", Var "x"),
-         Apply (Var "f", Var "y"),
-         Apply (Var "f", Var "z")))
-    "if f x then f y else f z";
+  parseTest "app_to_if"
+    (Apply (Var "f",
+          If (Int 0, Int 1, Int 2)))
+    "f (if 0 then 1 else 2)";
   parseTest "app_in_let"
     (Let ("x",
           (Apply (Var "f", Var "y")),
           (Apply (Var "x", Var "z"))))
     "let x = f y in x z";
+  parseTest "app_to_record"
+    (Apply (Access "x",
+            Record ["x", Int 3]))
+    "#x {x = 3}";
+  parseTest "app_to_if"
+    (Apply (Var "x",
+            If (Var "x", Var "y", Var "z")))
+    "x (if x then y else z)";
 
   (* RECORDS *)
   parseTest "record_simple"
@@ -224,8 +244,34 @@ let tests = "test suite for parsing" >::: [
   parseTest "record_binop2"
     (Record [("y", (Int 2)); ("x", Op (Add, Op (Mul, Int 2, Int 3), Int 4))])
     "{y=2, x= 2 * 3 + 4}";
-
+  parseTest "record_eqbin"
+    (Record [("y", Op (Eql, Int 2, Int 3)); ("x", Int 4)])
+    "{y= 2=3, x=4}";
     ]
 
+let failure_tests = "test suite for parsing" >::: [
+  (* Boolean Literals *)
+  parseTestF "bad_numbers1" "34%";
+  parseTestF "bad_numbers2" "34.4";
 
-let _ = run_test_tt_main tests
+  parseTestF "if_app" "f if 2 then 3 else 4";
+  parseTestF "if_incomplete" "if 3 then 4 else";
+
+  parseTestF "record_incomplete" "{x = 3,}";
+  parseTestF "record_incomplete2" "{x = 3, 5}";
+  parseTestF "record_incomplete3" "{x = 3, y=}";
+  parseTestF "record_badfield" "{2 = 3}";
+
+  parseTestF "binop_noright" "2 +";
+  parseTestF "binop_noleft" "+ 2";
+  parseTestF "binop_nodouble" " 2 + + 2";
+  parseTestF "binop_nodouble2" " 2 < + 2";
+
+  parseTestF "let_app" "f let z = 3 in z";
+  parseTestF "let_incomplete" "let x = 3";
+  parseTestF "let_badfield" "let 2 = 3 in z";
+
+  ]
+
+let _ = run_test_tt_main success_tests
+let _ = run_test_tt_main failure_tests

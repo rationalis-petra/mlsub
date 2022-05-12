@@ -16,7 +16,7 @@ type expr
   | Apply of expr * expr;;
 
 let reserved_words = ["let"; "rec"; "in"; "and"; "or"; "if"; "else"; "then"]
-(* let special_chars = ['+', '-', '*', '/', '>', '=', ',', '{', '}', '(', ')'] *)
+(* let special_chars = ['+'; '-'; '*'; '/'; '>'; '='; ','; '{'; '}'; '('; ')'] *)
 
 let string_of_op = function
   | Add -> "Add"     
@@ -108,7 +108,6 @@ let pWhitespace1 = take_while1 is_whitespace
 let token str = string str <* pWhitespace1
 let stoken str = string str <* pWhitespace
 let toTok p = p <* pWhitespace
-
 let parens p = stoken "(" *> pWhitespace *> p <* pWhitespace <* stoken ")"
 
 (* define the parsers themselves *)
@@ -194,7 +193,7 @@ let pBinary expr : expr t =
   (* Standard Operators: +, -, etc. according to standard precedence: * and / 
    * bind tighter than + and - bind tighter than > and = bind tighter than 'and' 
    * and 'or' *)
-  let factor = choice [(parens expr); pInteger; pBool; pAccess; pVar] in
+  let factor = choice [(parens expr); pInteger; pBool; pAccess; pVar; pRecord expr] in
   let term   = mkBin factor (pMul <|> pDiv) in
   let arith  = mkBin term (pAdd <|> pSub) in
   let logic  = mkBin arith (pGre <|> pEql <|> pLes) in
@@ -264,8 +263,17 @@ let expr_of_string (str:string) : expr =
   | Ok v      -> v
   | Error msg -> failwith msg
 
+let expr_of_string_opt (str:string) : expr option=
+  match parse_string ~consume:All (pExpr) str with
+  | Ok v      -> Some v
+  | Error _   -> None
+
 let prog_of_string (str:string) : expr list =
   match parse_string ~consume:All (pProgram) str with
   | Ok v      -> v
   | Error msg -> failwith ("ParseError: " ^ msg)
 
+let prog_of_string_opt (str:string) : (expr list) option =
+  match parse_string ~consume:All (pProgram) str with
+  | Ok v      -> Some v
+  | Error _   -> None

@@ -4,12 +4,7 @@ module StrMap = Map.Make(String)
 
 exception Err of string
 
-(* Notes to self *)
-(* Llvm.dump_value  to convert llvalue -> string *)
-(* Llvm.dump_module to convert llvalue -> string *)
-
-(* Use the Command Module for CLI parsing *)
-
+(* The arguments are parsed in directly  *)
 let rec compile mode in_filename out_filename format rcd_impl =
   Codegen.set_record_impl rcd_impl;
   let parse = 
@@ -72,8 +67,9 @@ let out_format =
   Arg.(value & opt string "bitcode" & info ["f"; "format"] ~docv:"FORMAT" ~doc)
 
 let rec_impl = 
-  let doc = "The name of the record implementation mechanism to use: can be hashmap," ^
-            "global or evidence. Default value is global" in
+  let doc =
+    "The name of the record implementation mechanism to use: can be hashmap or" ^
+            "global. Default value is global" in
   Arg.(value & opt string "global" & info ["r"; "record"] ~docv:"RECORD" ~doc)
 
 let mode = 

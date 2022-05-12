@@ -20,4 +20,8 @@ val string_of_op : op -> string
 
 val expr_of_string : string -> expr
 
+val expr_of_string_opt : string -> expr option
+
 val prog_of_string : string -> expr list
+
+val prog_of_string_opt : string -> expr list option

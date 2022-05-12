@@ -7,16 +7,13 @@ let rec reduce_option f = function
   | [x] -> Some x
   | x :: xs -> Option.map (fun y -> f x y) (reduce_option f xs)
 
-(* Given a function to merge two values of 'a and two options of 'a, either:
- * + 
- *)
 let option_merge (f: 'a -> 'a -> 'a )
       (o1 : 'a option) (o2 : 'a option) : 'a option = 
   match (o1, o2) with
   | (Some l, Some r) -> Some (f l r)
-  | (Some l, None) -> Some l
-  | (None,  Some r) -> Some r
-  | (None, None) -> None
+  | (Some l, None)   -> Some l
+  | (None  , Some r) -> Some r
+  | (None  , None)   -> None
 
 
 let merge_map (f: 'a -> 'a -> 'a) : 'a SMap.t -> 'a SMap.t -> 'a SMap.t =
@@ -609,6 +606,44 @@ module CompactTypeScheme = struct
 
          if !is_recursive then Recursive (vst_to_str (v ()), res) else res
     in
-    go (CompactType cty.term) Positive CTOVBoolMap.empty
+
+    let open Map.Make(String) in
+    let renaming : (string t) ref = ref empty in 
+    let counter = ref 0 in
+    let rec rename ty =
+      match ty with
+      | MLSubType.Top -> ty
+      | MLSubType.Bottom -> ty
+      | MLSubType.Primitive _ -> ty
+      | MLSubType.Intersection (t1, t2) ->
+         let new_t1 = rename t1 in
+         let new_t2 = rename t2 in
+         MLSubType.Intersection (new_t1, new_t2)
+      | MLSubType.Union (t1, t2) ->
+         let new_t1 = rename t1 in
+         let new_t2 = rename t2 in
+         MLSubType.Union (new_t1, new_t2)
+      | MLSubType.Function (t1, t2) ->
+         let new_t1 = rename t1 in
+         let new_t2 = rename t2 in
+         MLSubType.Function (new_t1, new_t2)
+      | MLSubType.Record lbls ->
+         MLSubType.Record (List.map (fun (lbl, v) -> (lbl, rename v)) lbls)
+      | MLSubType.Recursive (var, t) ->
+         let new_var = "ɑ" ^ (string_of_int !counter) in
+         counter := !counter + 1;
+         renaming := add var new_var !renaming;
+         let new_t = rename t in
+         MLSubType.Recursive (new_var, new_t)
+      | MLSubType.Variable var ->
+         match find_opt var !renaming with
+         | Some new_var -> MLSubType.Variable new_var
+         | None -> 
+            let new_var = "ɑ" ^ (string_of_int !counter) in
+            counter := !counter + 1;
+            renaming := add var new_var !renaming;
+            MLSubType.Variable new_var
+    in
+    rename (go (CompactType cty.term) Positive CTOVBoolMap.empty)
   
 end
